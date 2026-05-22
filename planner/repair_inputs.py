@@ -446,6 +446,104 @@ def get_counterexample_hints_for_repair(
         timeout_s=timeout_s
     )
 
+# [FIX] adding this function for repair.py
+def _run_nitpick_at_line(
+    isabelle,
+    session: str,
+    full_text_lines: List[str],
+    *,
+    inject_before_1based: int,
+    timeout_s: int = 6,
+) -> Dict[str, Any]:
+    """Run Quickcheck+Nitpick on the subgoal *at* a specific proof line.
+
+    Unlike `_counterexample_hints_from_state`, which recreates the lemma's
+    overall goal in a fresh theory, this injects the diagnostics inline right
+    before `inject_before_1based`, so it probes the *local* obligation that the
+    failing tactic on that line is trying to discharge. This is what tells us
+    whether an intermediate `have` the planner invented is actually FALSE (in
+    which case no tactic repair can save it) versus merely hard to prove (where
+    a stronger tactic / more facts would help).
+
+    Returns a dict:
+      {
+        "found_cex": bool,        # True if a (potential) counterexample was reported
+        "bindings": List[str],    # e.g. ["xs = [a]", "ys = []"]
+        "def_hints": List[str],   # e.g. ["unfolding foo_def"]
+        "raw": str,               # trimmed raw output, for logging
+      }
+
+    Never raises; on any failure returns found_cex=False with empty hints.
+    """
+    empty: Dict[str, Any] = {"found_cex": False, "bindings": [], "def_hints": [], "raw": ""}
+    try:
+        n = len(full_text_lines)
+        if n == 0:
+            return empty
+        # Clamp to a valid 0-based insertion index.
+        idx0 = max(0, min(inject_before_1based - 1, n - 1))
+
+        # Match the indentation of the line we're probing so the injected
+        # diagnostic sits at the same proof depth.
+        target = full_text_lines[idx0] or ""
+        indent = target[: len(target) - len(target.lstrip(" "))]
+        pad = indent if indent else "  "
+
+        # Quickcheck first (fast, concrete values); Nitpick second (deeper,
+        # finds counterexamples Quickcheck misses). Both are non-destructive
+        # diagnostics — they report and the proof continues — so even if the
+        # surrounding proof later fails, we still capture their messages.
+        qc_to = max(1, timeout_s // 3)
+        np_to = max(1, timeout_s)
+        injected = [
+            f"{pad}quickcheck[timeout={qc_to}]",
+            f"{pad}nitpick[timeout={np_to}, verbose, show_all]",
+        ]
+
+        variant_lines = full_text_lines[:idx0] + injected + full_text_lines[idx0:]
+
+        thy = build_theory(variant_lines, add_print_state=False, end_with=None)
+        resps = _run_theory_with_timeout(
+            isabelle, session, thy, timeout_s=timeout_s + 5
+        )
+
+        full_output: List[str] = []
+        for r in resps or []:
+            body = getattr(r, "response_body", None)
+            if isinstance(body, (bytes, bytearray)):
+                body = body.decode(errors="replace")
+            elif body is None:
+                continue
+            full_output.append(str(body))
+        result = "\n".join(full_output)
+
+        hints = _nitpick_state_hints_from_text(result)
+        bindings = hints.get("bindings", []) if isinstance(hints, dict) else []
+        def_hints = hints.get("def_hints", []) if isinstance(hints, dict) else []
+
+        # `_nitpick_state_hints_from_text` already gates on the counterexample
+        # markers, so non-empty bindings imply a CEX was found. Also re-check the
+        # markers directly in case a CEX was reported with no parseable bindings.
+        extracted = _extract_nitpick_text_from_responses(result) or result
+        found = bool(bindings) or any(m in extracted.lower() for m in _CEX_MARKERS)
+
+        # Trim raw output for logging sanity.
+        raw = extracted.strip()
+        if len(raw) > 1200:
+            raw = raw[:600] + "\n…\n" + raw[-600:]
+
+        return {
+            "found_cex": found,
+            "bindings": bindings,
+            "def_hints": def_hints,
+            "raw": raw,
+        }
+    except (TimeoutError, _FuturesTimeout):
+        # Diagnostic timed out — treat as inconclusive, not as "no counterexample".
+        return {"found_cex": False, "bindings": [], "def_hints": [], "raw": "(nitpick timeout)"}
+    except Exception as e:
+        return {"found_cex": False, "bindings": [], "def_hints": [], "raw": f"(nitpick error: {type(e).__name__})"}
+
 # ========== Context Analysis ==========
 
 def _hole_line_bounds(full_text: str, hole_span: Tuple[int, int]) -> Tuple[int, int, List[str]]:
