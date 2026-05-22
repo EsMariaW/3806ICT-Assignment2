@@ -488,23 +488,58 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
         if mode == "outline":
             return PlanAndFillResult(True, full, [], [])
 
-        # Handle complete proofs
+        # Handle complete proofs  [FIX] adding a bunch of trace lines
         if not spans:
+            if trace:
+                print("[plan] Skeleton came back with no 'sorry' holes; verifying as a complete proof...")
+            verified = False
             try:
-                if _verify_full_proof(isa, session, full):
-                    return PlanAndFillResult(True, full, [], [])
+                verified = _verify_full_proof(isa, session, full)
             except (TimeoutError, _FuturesTimeout, ValueError) as ex:
+                if trace:
+                    print(f"[plan] Full-proof verification raised {type(ex).__name__}: {ex}")
                 _restart_isabelle("verify_full_proof", ex)
 
+            if verified:
+                if trace:
+                    print("[plan] Complete proof verified on first try. Done.")
+                return PlanAndFillResult(True, full, [], [])
+
+            # Verification failed — surface WHY (the Isabelle rejection) so the trace
+            # shows the actual error rather than silently moving on.
+            if trace:
+                try:
+                    _, errs = _quick_state_and_errors(isa, session, full)
+                    if errs:
+                        print("[plan] Complete proof FAILED verification. Isabelle reported:")
+                        for m in errs[:5]:
+                            print(f"        - {str(m).strip()}")
+                    else:
+                        print("[plan] Complete proof FAILED verification (no specific error text captured).")
+                except Exception as ex:
+                    print(f"[plan] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}")
+
             if repairs and left_s() > 6.0:
+                if trace:
+                    print("[plan] Engaging top-down repair on the failed complete proof...")
                 full, ok = _repair_failed_proof_topdown(isa, session, full, goal, model, left_s, max_repairs_per_hole, trace)
                 if ok:
+                    if trace:
+                        print("[plan] Top-down repair produced a verified proof. Done.")
                     return PlanAndFillResult(True, full, [], [])
+                if trace:
+                    print("[plan] Top-down repair did not yield a verified proof.")
+            elif trace:
+                print("[plan] Skipping repair (disabled or insufficient time remaining).")
 
             full2, opened = _open_minimal_sorries(isa, session, full)
             full = full2 if opened else full
             if not opened:
+                if trace:
+                    print("[plan] Could not localise the failure into a 'sorry'; returning unverified proof as FAILED.")
                 return PlanAndFillResult(False, full, [], [0])
+            elif trace:
+                print("[plan] Localised the failing step into a 'sorry'; entering hole-fill loop.")
 
         # Fill holes
         lemma_line = _first_lemma_line(full)
@@ -643,7 +678,6 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                     STAGE1_CAP = 2
                     STAGE2_CAP = 3
 
-                    # [FIX]
                     # FALSE-SUBGOAL FAST-PATH:
                     # If the per-line Nitpick/Quickcheck diagnostic proved that a
                     # local obligation under this hole is FALSE, then leaf-level
@@ -667,7 +701,6 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                             print(f"[repair] Stage 2 cap ({STAGE2_CAP}) reached. Regenerating whole proof...")
 
                     if should_escalate:
-                        # [FIX]
                         # A proven-false subgoal means stage-2 leaf repair is also
                         # futile, so force the jump to regeneration regardless of stage.
                         if start_stage < 2 and not force_regen:

@@ -228,6 +228,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             g = file_goals[args.line_no - 1]
             res = _run_one(g, trace=args.trace)
             print(res.outline, end="" if res.outline.endswith("\n") else "\n")
+            if not res.success:
+                print("[planner] NOTE: this proof did NOT verify (returned as a failed attempt).", file=sys.stderr)
             return 0 if res.success else 1
 
         # Batch: compact per-line pass/fail, then a Success: N/M tally.
@@ -252,6 +254,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.trace and ("--verbose" in (argv or sys.argv) or "--repair-trace" in (argv or sys.argv)):
         print("[planner] Note: --verbose/--repair-trace are deprecated; use --trace.", flush=True)
     print(res.outline, end="" if res.outline.endswith("\n") else "\n")
+    if not res.success:
+        print("[planner] NOTE: this proof did NOT verify (returned as a failed attempt).", file=sys.stderr)
     return 0 if res.success else 1
 
 
