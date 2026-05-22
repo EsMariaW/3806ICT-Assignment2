@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple, Set, Any
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 import requests
 from typing import Callable
-from planner.repair_inputs import _find_first_hole, _hole_line_bounds, _APPLY_OR_BY, _snippet_window, _clamp_line_index, _quick_state_and_errors, _extract_error_lines, _run_theory_with_timeout, _print_state_before_hole, _nearest_header, _recent_steps, _normalize_error_texts, _facts_from_state, get_counterexample_hints_for_repair, _earliest_failure_anchor
+from planner.repair_inputs import _find_first_hole, _hole_line_bounds, _APPLY_OR_BY, _snippet_window, _clamp_line_index, _quick_state_and_errors, _extract_error_lines, _run_theory_with_timeout, _print_state_before_hole, _nearest_header, _recent_steps, _normalize_error_texts, _facts_from_state, get_counterexample_hints_for_repair, _earliest_failure_anchor, _run_nitpick_at_line
 from planner.prompts import _LOCAL_SYSTEM, _LOCAL_USER, _BLOCK_SYSTEM, _BLOCK_USER
 from prover.config import MODEL as DEFAULT_MODEL, OLLAMA_HOST, TIMEOUT_S as OLLAMA_TIMEOUT_S, OLLAMA_NUM_PREDICT, TEMP as OLLAMA_TEMP, TOP_P as OLLAMA_TOP_P
 from prover.isabelle_api import build_theory, run_theory, last_print_state_block, finished_ok
@@ -19,6 +19,21 @@ _ISA_FAST_TIMEOUT_S = int(os.getenv("ISABELLE_FAST_TIMEOUT_S", "12"))
 _ISA_VERIFY_TIMEOUT_S = int(os.getenv("ISABELLE_VERIFY_TIMEOUT_S", "30"))
 _SESSION = requests.Session()
 _REPAIR_RULES_JSON = os.getenv("REPAIR_RULES_JSON", "").strip()  # optional, declarative fallback rules
+
+# [FIX]
+# Lines (1-based, in the current full_text) whose local obligation Nitpick/Quickcheck
+# proved FALSE. A false obligation can never be discharged by tactic repair, so the
+# driver should skip leaf-level repair for these and escalate straight to regeneration.
+# Best-effort signal: it is repopulated as repair runs and read by the driver via
+# `pop_false_subgoal_lines()`. Cleared on read so stale entries don't leak across holes.
+_FALSE_SUBGOAL_LINES: Set[int] = set()
+
+def pop_false_subgoal_lines() -> Set[int]:
+    """Return and clear the set of lines found to have a FALSE local obligation."""
+    global _FALSE_SUBGOAL_LINES
+    out = set(_FALSE_SUBGOAL_LINES)
+    _FALSE_SUBGOAL_LINES = set()
+    return out
 
 # ========== Regex Patterns ==========
 _CTX_HEAD = re.compile(r"^\s*(?:using|from|with|then|ultimately|finally|also|moreover)\b")
@@ -142,6 +157,13 @@ def _generate_simple(prompt: str, model: Optional[str] = None, *, timeout_s: Opt
         return _gemini_generate(prompt, m[7:], timeout)
     elif m.startswith("ollama:"):
         m = m[7:]
+
+    # [FIX] some tracing
+    print(f"\n{'='*60}")
+    print(f"[LLM repair] model={m}")
+    print(f"[LLM repair] RAW RESPONSE (from repair.py):\n{raw}")
+    print(f"{'='*60}\n")
+
     return _ollama_generate(prompt, m, timeout)
 
 def _ollama_generate(prompt: str, model: str, timeout_s: int) -> str:
@@ -564,18 +586,27 @@ def _replace_failing_tactics_with_sorry(block_text: str, *, full_text_lines: Lis
         if cand is None:
             break
 
+        # [FIX]
         # --- Diagnostics before modifying the block ---
         # Run Quickcheck/Nitpick on the exact failing tactic line, so we capture
-        # a counterexample on the subgoal that is about to fail.
-        # try:
-        #     diag_txt = _run_nitpick_at_line(
-        #         isabelle, session, full_text_lines,
-        #         inject_before_1based=start_line + cand
-        #     )
-        #     if diag_txt:
-        #         _log("repair", "nitpick (pre-sorry)", diag_txt, trace=trace)
-        # except Exception:
-        #     pass
+        # a counterexample on the subgoal that is about to fail. A counterexample
+        # here means the local obligation is FALSE — tactic repair cannot help,
+        # and the structure above this line needs to change instead.
+        try:
+            diag = _run_nitpick_at_line(
+                isabelle, session, full_text_lines,
+                inject_before_1based=start_line + cand,
+                timeout_s=6,
+            )
+            if diag.get("found_cex"):
+                binds = ", ".join(diag.get("bindings", [])) or "(no parseable bindings)"
+                _log("repair", "nitpick (pre-sorry) FALSE-subgoal",
+                     f"counterexample at line {start_line + cand}: {binds}", trace=trace)
+                _FALSE_SUBGOAL_LINES.add(start_line + cand)
+            elif diag.get("raw"):
+                _log("repair", "nitpick (pre-sorry)", diag["raw"], trace=trace)
+        except Exception:
+            pass
 
         indent = block_lines[cand][:len(block_lines[cand]) - len(block_lines[cand].lstrip())]
         if block_lines[cand].lstrip().startswith("apply"):
