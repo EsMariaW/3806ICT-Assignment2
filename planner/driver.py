@@ -11,7 +11,7 @@ import hashlib
 from planner.skeleton import (
     Skeleton, find_sorry_spans, propose_isar_skeleton, propose_isar_skeleton_diverse_best,
 )
-from planner.repair import try_cegis_repairs, regenerate_whole_proof, _APPLY_OR_BY as _TACTIC_LINE_RE
+from planner.repair import try_cegis_repairs, regenerate_whole_proof, pop_false_subgoal_lines, _APPLY_OR_BY as _TACTIC_LINE_RE
 from prover.config import ISABELLE_SESSION
 from prover.isabelle_api import (
     build_theory, get_isabelle_client, last_print_state_block, start_isabelle_server,
@@ -643,7 +643,20 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                     STAGE1_CAP = 2
                     STAGE2_CAP = 3
 
-                    should_escalate = False
+                    # [FIX]
+                    # FALSE-SUBGOAL FAST-PATH:
+                    # If the per-line Nitpick/Quickcheck diagnostic proved that a
+                    # local obligation under this hole is FALSE, then leaf-level
+                    # tactic repair (stages 1-2) can never close it — the structure
+                    # containing that false `have` must be regenerated. Skip the
+                    # remaining caps and jump straight to whole-proof regeneration.
+                    false_lines = pop_false_subgoal_lines()
+                    force_regen = bool(false_lines)
+                    if force_regen and trace:
+                        print(f"[repair] FALSE subgoal proven at line(s) {sorted(false_lines)}; "
+                              f"skipping leaf-repair and regenerating whole proof.")
+
+                    should_escalate = force_regen
                     if start_stage == 1 and stage_tries[key] >= STAGE1_CAP:
                         should_escalate = True
                         if trace:
@@ -654,7 +667,10 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                             print(f"[repair] Stage 2 cap ({STAGE2_CAP}) reached. Regenerating whole proof...")
 
                     if should_escalate:
-                        if start_stage < 2:
+                        # [FIX]
+                        # A proven-false subgoal means stage-2 leaf repair is also
+                        # futile, so force the jump to regeneration regardless of stage.
+                        if start_stage < 2 and not force_regen:
                             repair_progress[hole_key] = 2
                             focused_hole_key = hole_key
                             continue
