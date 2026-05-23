@@ -358,7 +358,6 @@ def _normalize_show_kinds(text: str) -> str:
         lines[i] = SHOW_META_AT_SHOW.sub(_repl, L, count=1)
     return "\n".join(lines)
 
-# [FIX] remove any sorry inserted after a 'done' etc.
 def _drop_redundant_sorry(text: str) -> str:
     """Remove a `sorry` that directly follows a finisher.
 
@@ -380,6 +379,12 @@ def _drop_redundant_sorry(text: str) -> str:
     `by <method>`, or ends in an inline ` by <method>` (e.g. `using a1 by simp`).
     We intentionally do NOT treat `proof`/`next`/`qed`/`case` as closers, so we
     never strip a `sorry` that is the legitimate body of a freshly opened goal.
+
+    Additionally collapses *duplicate* sorries: a standalone `sorry` whose nearest
+    preceding non-blank line already ends the obligation with `sorry` (either a
+    standalone `sorry` or an inline `... sorry`, e.g. `have f4: "..." sorry`). The
+    model sometimes emits both an inline and a trailing sorry for one `have`, which
+    is malformed; we keep the first and drop the redundant follow-on.
     """
     lines = text.splitlines()
     out: List[str] = []
@@ -388,11 +393,16 @@ def _drop_redundant_sorry(text: str) -> str:
     closer_by = re.compile(r"(?m)^\s*by\b")
     closer_done = re.compile(r"(?m)^\s*(?:done|\.\.?)\s*$")
     inline_by = re.compile(r"\s+by\s+\S")
+    ends_in_sorry = re.compile(r"\bsorry\s*$")
     for L in lines:
         if SORRY_RE.search(L) and L.strip() == "sorry" and last_nonblank >= 0:
             prev = out[last_nonblank]
+            # (a) redundant after a real finisher
             if closer_by.match(prev) or closer_done.match(prev) or inline_by.search(prev):
-                # Drop this redundant sorry entirely (do not append).
+                continue
+            # (b) duplicate sorry: the obligation is already terminated by a sorry
+            #     on the previous non-blank line (standalone or inline).
+            if ends_in_sorry.search(prev):
                 continue
         out.append(L)
         if L.strip() != "":
