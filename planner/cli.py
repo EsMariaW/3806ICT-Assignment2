@@ -228,26 +228,39 @@ def main(argv: Optional[List[str]] = None) -> int:
             g = file_goals[args.line_no - 1]
             res = _run_one(g, trace=args.trace)
             print(res.outline, end="" if res.outline.endswith("\n") else "\n")
-            if not res.success:
+            if getattr(res, "status", None) == "malformed":
+                print("[planner] NOTE: goal statement is MALFORMED (does not parse in Isabelle); not a prover failure.", file=sys.stderr)
+            elif not res.success:
                 print("[planner] NOTE: this proof did NOT verify (returned as a failed attempt).", file=sys.stderr)
             return 0 if res.success else 1
 
         # Batch: compact per-line pass/fail, then a Success: N/M tally.
         n_ok = 0
+        n_malformed = 0
         total = len(file_goals)
         for i, g in enumerate(file_goals, start=1):
             ok = False
+            malformed = False
             try:
                 res = _run_one(g, trace=False)
                 ok = bool(res.success)
+                malformed = (getattr(res, "status", None) == "malformed")
             except Exception as ex:
                 print(f"[{i}/{total}] CRASH  {type(ex).__name__}: {ex}", file=sys.stderr)
-            status = "PASS" if ok else "FAIL"
-            print(f"[{i}/{total}] {status}  {g}", flush=True)
-            if ok:
+            if malformed:
+                status = "MALFORMED"
+                n_malformed += 1
+            elif ok:
+                status = "PASS"
                 n_ok += 1
-        print(f"\nBatch done. Success: {n_ok}/{total} ({100.0 * n_ok / total:.1f}%).", flush=True)
-        return 0 if n_ok == total else 1
+            else:
+                status = "FAIL"
+            print(f"[{i}/{total}] {status:9s}  {g}", flush=True)
+        n_attempted = total - n_malformed
+        rate = (100.0 * n_ok / n_attempted) if n_attempted else 0.0
+        print(f"\nBatch done. Success: {n_ok}/{n_attempted} ({rate:.1f}%) of well-formed goals; "
+              f"{n_malformed} malformed (excluded); {total} total.", flush=True)
+        return 0 if (n_ok == n_attempted and n_attempted > 0) else 1
 
     # ---- Single-goal mode (unchanged behaviour) ----
     res = _run_one(goal, trace=args.trace)
