@@ -271,7 +271,15 @@ def _extract_print_state_from_responses(resps: List) -> str:
         resp_type = str(getattr(resp, "response_type", "")).upper()
         if resp_type == "NOTE":
             try:
-                body = json.loads(getattr(resp, "response_body", "") or "{}")
+                raw_body = getattr(resp, "response_body", None)
+                # Fix: handle non-string types
+                if raw_body is None:
+                    continue
+                if isinstance(raw_body, (bytes, bytearray)):
+                    raw_body = raw_body.decode(errors="replace")
+                elif not isinstance(raw_body, str):
+                    raw_body = str(raw_body)
+                body = json.loads(raw_body) if raw_body.strip().startswith("{") else {}
             except Exception:
                 body = {}
             if isinstance(body, dict) and body.get("kind") == "writeln":
@@ -287,10 +295,18 @@ def _extract_print_state_from_responses(resps: List) -> str:
             continue
 
         body = getattr(resp, "response_body", None)
-        if isinstance(body, bytes):
+        if body is None:
+            continue
+        # Fix: handle other non-string types
+        if isinstance(body, (bytes, bytearray)):
             body = body.decode(errors="replace")
+        elif not isinstance(body, str):
+            try:
+                body = str(body)
+            except Exception:
+                continue
         try:
-            data = json.loads(body) if isinstance(body, str) and body.strip().startswith("{") else body
+            data = json.loads(body) if body.strip().startswith("{") else None
             if not isinstance(data, dict):
                 continue
         except (json.JSONDecodeError, TypeError):
@@ -343,6 +359,7 @@ def _print_state_before_hole(isabelle, session: str, full_text: str, hole_span: 
         #             print(f"{i:3d}: {ln}")
         #     print("=" * 60)
         resps = _run_theory_with_timeout(isabelle, session, thy, timeout_s=_ISA_FAST_TIMEOUT_S)
+        print(f"[DEBUG RESPS] type={type(resps)}, value={repr(resps)[:200]}")
         state = _extract_print_state_from_responses(resps)
         # if trace:
         #     print(f"[DEBUG] State block contains [LLM_VARS]: {_LLM_VARS_MARK in state}")
@@ -356,4 +373,6 @@ def _print_state_before_hole(isabelle, session: str, full_text: str, hole_span: 
     except Exception as e:
         if trace:
             print(f"[DEBUG] Exception: {e}")
+        import traceback
+        traceback.print_exc()
         return ""

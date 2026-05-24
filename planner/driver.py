@@ -298,12 +298,31 @@ def _quick_state_and_errors(isabelle, session: str, text: str, *, timeout_s: Opt
             state = ""
 
         # Normalize messages to strings for simple scanning
+        # Fix: handle non-string
+        errs = []
         if isinstance(out, (list, tuple)):
-            msgs = [str(m) for m in out]
+            for m in out:
+                # Extract response_body if it's an Isabelle response object
+                msgs = getattr(m, "response_body", None)
+                if msgs is None:
+                    msgs = str(m)
+                if isinstance(msgs, (bytes, bytearray)):
+                    msgs = msgs.decode(errors="replace")
+                elif not isinstance(msgs, str):
+                    msgs = str(msgs)
+                if any(tok in msgs.lower() for tok in ("error", "exception", "failed")):
+                    errs.append(msgs)
         else:
-            msgs = [str(out)]
+            msgs = str(out)
+            if any(tok in msgs.lower() for tok in ("error", "exception", "failed")):
+                errs.append(msgs)
 
-        errs = [m for m in msgs if any(tok in m.lower() for tok in ("error", "exception", "failed"))]
+        # original:
+        # if isinstance(out, (list, tuple)):
+        #     msgs = [str(m) for m in out]
+        # else:
+        #     msgs = [str(out)]
+
         return state, errs
     except Exception as ex:
         return "", [str(ex)]
@@ -446,6 +465,10 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
     t0 = time.monotonic()
     left_s = lambda: max(0.0, timeout - (time.monotonic() - t0))
 
+    # Fix 2: explicitly split time between skeleton generation and repair
+    _skeleton_budget_s = min(timeout * 0.4, 45.0)
+    _repair_reserve_s = max(timeout * 0.6, timeout - 45.0)
+
     restart_count = 0
 
     def _restart_isabelle(reason: str, ex: Optional[BaseException] = None) -> None:
@@ -471,6 +494,22 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
         # Generate outline
         if legacy_single_outline:
             full = propose_isar_skeleton(goal, model=model, temp=0.35, force_outline=(mode == "outline")).text
+
+            # Fix 2: repair timer
+            _repair_start = time.monotonic()
+            _elapsed = _repair_start - t0
+            _remaining = max(0.0, timeout - _elapsed)
+            _minimum_repair_s = min(20.0, _remaining * 0.5)  # floor is half of what's left, max 20s
+            _repair_end = max(
+                _repair_start + _minimum_repair_s,   # floor: at least half remaining
+                min(
+                    _repair_start + _repair_reserve_s,  # preferred: full reserve
+                    t0 + timeout                          # ceiling: never exceed total
+                )
+            )
+            left_s = lambda: max(0.0, _repair_end - time.monotonic())
+
+
         else:
             temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
             k = int(outline_k) if outline_k is not None else 3
@@ -480,8 +519,19 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                 context_hints=context_hints, lib_templates=lib_templates,
                 alpha=alpha, beta=beta, gamma=gamma, hintlex_path=hintlex_path,
                 hintlex_top=hintlex_top,
+                timeout_s = int(_skeleton_budget_s)    # Fix 2: explicitly split time between skeleton generation and repair 
             )
             full = best.text
+
+            # Fix 2: explicitly split time between skeleton generation and repair
+            # Reset the clock reference for repair/fill stage
+            # Guarantee repair gets at least _repair_reserve_s seconds
+            _repair_start = time.monotonic()
+            _repair_end = min(
+                _repair_start + _repair_reserve_s,  # guaranteed minimum
+                t0 + timeout                          # but never beyond total timeout
+            )
+            left_s = lambda: max(0.0, _repair_end - time.monotonic())
 
         spans = find_sorry_spans(full)
 

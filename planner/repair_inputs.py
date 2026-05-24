@@ -77,10 +77,19 @@ def _extract_print_state_from_responses(resps: List) -> str:
         if str(getattr(resp, "response_type", "")).upper() != "FINISHED":
             continue
         body = getattr(resp, "response_body", None)
-        if isinstance(body, bytes):
+        # Fix: handle non-string response types
+        if body is None:
+            continue
+        if isinstance(body, (bytes, bytearray)):
             body = body.decode(errors="replace")
+        elif not isinstance(body, str):
+            try:
+                body = str(body)
+            except Exception:
+                continue
+        # body is now guaranteed to be a string
         try:
-            data = json.loads(body) if isinstance(body, str) and body.strip().startswith("{") else body
+            data = json.loads(body) if isinstance(body, str) and body.strip().startswith("{") else None
             if not isinstance(data, dict):
                 continue
             for node in data.get("nodes", []):
@@ -106,9 +115,17 @@ def _quick_state_and_errors(isabelle, session: str, full_text: str) -> Tuple[str
         errors: List[dict] = []
         
         for r in resps or []:
+            # Fix: handle non-string response types
             raw = getattr(r, "response_body", None)
+            if raw is None:
+                continue
             if isinstance(raw, (bytes, bytearray)):
                 raw = raw.decode(errors="replace")
+            elif not isinstance(raw, str):
+                try:
+                    raw = str(raw)
+                except Exception:
+                    continue
             
             # Try structured JSON first
             try:
@@ -188,22 +205,23 @@ def _extract_nitpick_text_from_responses(resps_text: str) -> str:
             continue
         if s.startswith("{"):
             try:
-                data = json.loads(s)
-                if isinstance(data, dict):
-                    msg = data.get("message")
-                    if isinstance(msg, str) and msg.strip():
-                        messages.append(msg)
-                    for node in data.get("nodes", []):
-                        for m in node.get("messages", []):
-                            if isinstance(m, dict):
-                                t = m.get("message", "")
+                if isinstance(s, str) and s.strip().startswith("{"):
+                    data = json.loads(s)
+                    if isinstance(data, dict):
+                        msg = data.get("message")
+                        if isinstance(msg, str) and msg.strip():
+                            messages.append(msg)
+                        for node in data.get("nodes", []):
+                            for m in node.get("messages", []):
+                                if isinstance(m, dict):
+                                    t = m.get("message", "")
+                                    if isinstance(t, str) and t:
+                                        messages.append(t)
+                        for err in data.get("errors", []):
+                            if isinstance(err, dict):
+                                t = err.get("message", "")
                                 if isinstance(t, str) and t:
                                     messages.append(t)
-                    for err in data.get("errors", []):
-                        if isinstance(err, dict):
-                            t = err.get("message", "")
-                            if isinstance(t, str) and t:
-                                messages.append(t)
                 continue
             except json.JSONDecodeError:
                 pass
@@ -410,10 +428,16 @@ end
         full_output: List[str] = []
         for r in resps or []:
             body = getattr(r, "response_body", None)
-            if isinstance(body, (bytes, bytearray)):
-                body = body.decode(errors="replace")
-            elif body is None:
+            if body is None:
                 continue
+            if isinstance(body, bytes):
+                body = body.decode(errors="replace")
+            elif not isinstance(body, str):
+                # Fix: handle nonstring types
+                try:
+                    body = str(body)
+                except Exception:
+                    continue
             full_output.append(str(body))
         
         result = "\n".join(full_output)
