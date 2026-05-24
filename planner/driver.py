@@ -577,6 +577,32 @@ def _try_direct_finishers(isabelle, session: str, goal: str, left_s, trace: bool
             return candidate
     return None
 
+def _syntax_fix_is_safe(original: str, fixed: str) -> bool:
+    """
+    Check that the LLM syntax fix only changed parentheses/spacing/dots,
+    not logical content. Returns True if safe to use.
+    """
+    # Strip all parentheses, dots, spaces and compare token sets
+    def _tokens(s: str) -> set:
+        # Remove punctuation that's allowed to change
+        s = re.sub(r'[().\s]', ' ', s)
+        return set(s.split())
+    
+    orig_tokens = _tokens(original)
+    fixed_tokens = _tokens(fixed)
+    
+    # The fixed version must not have any new tokens
+    new_tokens = fixed_tokens - orig_tokens
+    if new_tokens:
+        return False
+    
+    # The fixed version must not have lost any tokens
+    lost_tokens = orig_tokens - fixed_tokens
+    if lost_tokens:
+        return False
+    
+    return True
+
 def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *, mode: str = "auto",
                  outline_k: Optional[int] = None, outline_temps: Optional[Iterable[float]] = None,
                  legacy_single_outline: bool = False, repairs: bool = True,
@@ -628,6 +654,16 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
         isa, session, proc = isa2, session2, proc2
 
     try:
+        # attempted fix workflow:
+        # goal string
+        # → regex fixes (fast, free)
+        # → _goal_parses() check
+        #     → parses? → continue normally ✅
+        #     → fails? → LLM fix attempt (costs 1 API call, ~5s)
+        #         → _goal_parses() check on fixed goal
+        #             → parses? → use fixed goal, continue ✅
+        #             → fails? → discard, return MALFORMED ❌
+
         # attempt to fix syntactical error
         # fix negation: from ¬A to (¬A)
         goal = re.sub(
@@ -658,8 +694,61 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
         # doesn't burn the fast-path / skeleton / repair budget and doesn't get
         # counted as a genuine prover FAIL in benchmarks.
         # Skippable via PARSECHECK_OFF=1.
+        # PRE-VALIDATION: check if goal parses
         if os.getenv("PARSECHECK_OFF", "").strip().lower() not in ("1", "true", "yes", "on"):
             ok, detail = _goal_parses(isa, session, goal)
+
+            # If regex fixes weren't enough, try LLM syntax fix
+            if not ok and model and left_s() > 10.0:
+                if trace:
+                    print(f"[plan] Goal does not parse after regex fixes ({detail}); "
+                          f"attempting LLM syntax fix...")
+                try:
+                    from planner.skeleton import _generate_simple
+                    fix_prompt = f"""You are an Isabelle/HOL expert. The following goal statement has a syntax error and cannot be parsed by Isabelle.
+
+ORIGINAL GOAL:
+{goal}
+
+ISABELLE ERROR:
+{detail}
+STRICT RULES — you must follow ALL of these:
+- Fix ONLY the syntax error so that Isabelle can parse it as a proposition; nothing else
+- Do NOT add, remove, or change any logical connectives (∧ ∀ ∃ ⟶ ⟷ ¬ etc.)
+- Do NOT add, remove, or change any variables, predicates, or constants
+- Do NOT change the mathematical meaning in any way
+- Only allowed changes: add/remove parentheses, add missing dots after quantifiers, fix spacing
+- If you cannot fix it with only these changes, return the original unchanged
+
+Return ONLY the corrected goal statement (no lemma keyword, no proof, no quotes, no explanation).
+
+Example input:  ¬ ∃x. P x ⟷ ∀x. ¬ P x
+Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
+"""
+                    fixed_goal = _generate_simple(
+                        fix_prompt, model=model, timeout_s=min(20, int(left_s() * 0.3))
+                    ).strip().strip('"')
+
+                    if fixed_goal:
+                        # Guard: verify the fix didn't add/remove logical content
+                        if _syntax_fix_is_safe(goal, fixed_goal):
+                            ok2, detail2 = _goal_parses(isa, session, fixed_goal)
+                            if ok2:
+                                if trace:
+                                    print(f"[plan] LLM syntax fix succeeded: {fixed_goal!r}")
+                                goal = fixed_goal  # accept the fix, continue normally
+                                ok = True
+                            else:
+                                if trace:
+                                    print(f"[plan] LLM syntax fix did not parse either "
+                                        f"({detail2}); discarding, flagging as MALFORMED.")
+                        else:
+                            if trace:
+                                print(f"[plan] LLM syntax fix rejected — changed logical content; discarding.")
+                except Exception as e:
+                    if trace:
+                        print(f"[plan] LLM syntax fix attempt failed: {type(e).__name__}: {e}")
+
             if not ok:
                 if trace:
                     print(f"[plan] Goal statement does NOT parse in Isabelle ({detail}); "

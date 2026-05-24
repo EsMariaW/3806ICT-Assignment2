@@ -265,7 +265,7 @@ def _generate_simple(
         )
 
     print(f"\n{'='*60}")
-    print(f"[LLM skeleton] model={m}")
+    print(f"[LLM skeleton] model={model}  temp={temperature}")
     print(f"[LLM skeleton] RAW RESPONSE (from skeleton.py):\n{raw}")
     print(f"{'='*60}\n")
 
