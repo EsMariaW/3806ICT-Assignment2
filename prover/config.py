@@ -64,7 +64,7 @@ def _load_from_env() -> Dict[str, Any]:
     # Most engines assume (0,1]; allow 0 for deterministic; clamp >1 to 1.0
     d["OLLAMA_TOP_P"] = _clamp(_get("OLLAMA_TOP_P", 0.95, _to_float), 0.0, 1.0)
     d["OLLAMA_TIMEOUT_S"] = _get("OLLAMA_TIMEOUT_S", 120, _to_int)
-    d["OLLAMA_NUM_PREDICT"] = _get("OLLAMA_NUM_PREDICT", 256, _to_int)
+    d["OLLAMA_NUM_PREDICT"] = _get("OLLAMA_NUM_PREDICT", 1356, _to_int) # [FIX] Increase from 256 tokens to 1356
 
     # Legacy aliases (kept for compatibility with llm.py/logging_utils.py)
     d["TEMP"] = d["OLLAMA_TEMP"]

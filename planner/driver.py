@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import re
 import os
+import json
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
@@ -11,7 +12,7 @@ import hashlib
 from planner.skeleton import (
     Skeleton, find_sorry_spans, propose_isar_skeleton, propose_isar_skeleton_diverse_best,
 )
-from planner.repair import try_cegis_repairs, regenerate_whole_proof, _APPLY_OR_BY as _TACTIC_LINE_RE
+from planner.repair import try_cegis_repairs, regenerate_whole_proof, pop_false_subgoal_lines, _APPLY_OR_BY as _TACTIC_LINE_RE
 from prover.config import ISABELLE_SESSION
 from prover.isabelle_api import (
     build_theory, get_isabelle_client, last_print_state_block, start_isabelle_server,
@@ -39,6 +40,9 @@ class PlanAndFillResult:
     outline: str
     fills: List[str]
     failed_holes: List[int]
+    # Optional classification tag. None for normal pass/fail; "malformed" when the
+    # goal statement itself fails to parse in Isabelle (not a prover failure).
+    status: Optional[str] = None
 
 
 # ============================================================================
@@ -440,6 +444,139 @@ def plan_outline(goal: str, *, model: Optional[str] = None, outline_k: Optional[
     finally:
         _cleanup_resources(isa, proc)
 
+_IDENT_RE = re.compile(r"\b([a-z][a-zA-Z0-9_']*)\b")
+# Tokens that are function/keyword/predicate names, not induction-variable candidates.
+_NON_VAR_TOKENS = frozenset({
+    "rev", "map", "filter", "set", "length", "take", "drop", "id", "fold", "foldr", "foldl",
+    "hd", "tl", "last", "butlast", "concat", "zip", "sum", "size", "of", "the", "case",
+    "if", "then", "else", "let", "in", "True", "False", "Nil", "Cons", "None", "Some",
+    "distinct", "sorted", "insort", "remdups", "replicate", "nth", "list", "nat",
+    # set/function predicates that look like lowercase idents but are never induction vars
+    "inj_on", "inj", "surj", "bij", "finite", "infinite", "card", "image", "range",
+    "dom", "ran", "comp", "fst", "snd", "min", "max", "abs", "gcd", "lcm",
+})
+
+def _candidate_induction_vars(goal: str) -> List[str]:
+    """Heuristically pick variables to try induction on, in priority order.
+
+    Only returns identifiers that plausibly denote an inductive *value* (a list,
+    nat, etc.) — NOT function/predicate names. We exclude (a) known function/
+    predicate tokens, and (b) any identifier that is immediately *applied* to an
+    argument in the goal (e.g. the `f` in `f A`, or `p` in `p x`), since inducting
+    on a function symbol is always useless and just wastes Isabelle calls.
+    De-duplicated, order-preserving, capped.
+    """
+    # Identifiers that are applied to an ARGUMENT (followed by '(' or another
+    # lowercase identifier) — these are functions/predicates, not induction targets.
+    # We deliberately do NOT count operators (@, =, ∪, etc.) as application, so a
+    # list var like the `xs` in `xs @ ys` is still treated as an induction candidate.
+    applied = set(re.findall(r"\b([a-z][a-zA-Z0-9_']*)\s+(?:\(|[a-z])", goal))
+    seen: List[str] = []
+    for m in _IDENT_RE.finditer(goal):
+        tok = m.group(1)
+        if tok in _NON_VAR_TOKENS:
+            continue
+        if tok in applied:
+            # Looks like it's applied as a function — skip as an induction var.
+            # (Cheap heuristic; a wrong skip just means we miss one induct attempt.)
+            continue
+        if tok not in seen:
+            seen.append(tok)
+    # Common convention: xs/ys/zs are the usual list vars; float those first.
+    seen.sort(key=lambda v: (0 if v in ("xs", "ys", "zs", "as", "bs", "n", "m") else 1))
+    return seen[:2]  # cap: at most 2 induction vars to keep overhead low
+
+_PARSE_ERR_MARKERS = (
+    "inner syntax error",
+    "failed to parse",
+    "inner lexical error",
+    "bad name binding",
+    "undefined type name",
+    "type unification failed",  # statement-level type errors (e.g. ill-typed prop)
+)
+
+def _goal_parses(isabelle, session: str, goal: str) -> Tuple[bool, str]:
+    """Check whether the GOAL STATEMENT itself is a well-formed Isabelle prop.
+
+    Submits `lemma "{goal}" oops` — `oops` makes Isabelle parse and typecheck the
+    statement, then abandon the (unproved) goal cleanly. We deliberately test the
+    statement *in isolation* with no model-generated proof body, so any parse/lexical/
+    type error can only come from the statement. This separates MALFORMED goals
+    (the dataset's fault — not a valid proposition) from genuine prover FAILures.
+
+    Returns (ok, detail): ok=True if the statement parses & typechecks; otherwise
+    ok=False with a short detail string for logging.
+    """
+    try:
+        thy = build_theory([f'lemma "{goal}"', "oops"], add_print_state=False, end_with=None)
+        resps = _run_theory_with_timeout(isabelle, session, thy, timeout_s=20)
+    except (TimeoutError, _FuturesTimeout, ValueError):
+        # Inconclusive (timeout/exec error) — treat as parses=True so we DON'T
+        # mislabel a slow-but-valid goal as malformed. Better to attempt the proof.
+        return True, "(parse-check inconclusive: timeout)"
+    except Exception as ex:
+        return True, f"(parse-check inconclusive: {type(ex).__name__})"
+
+    # Scan response bodies for statement-level parse/type errors.
+    for r in (resps or []):
+        body = getattr(r, "response_body", None)
+        if isinstance(body, (bytes, bytearray)):
+            body = body.decode("utf-8", "replace")
+        text = ""
+        if isinstance(body, str):
+            text = body
+        elif isinstance(body, dict):
+            text = json.dumps(body)
+        low = text.lower()
+        if '"kind":"error"' in low or "error" in low:
+            for marker in _PARSE_ERR_MARKERS:
+                if marker in low:
+                    return False, marker
+    return True, "ok"
+
+def _try_direct_finishers(isabelle, session: str, goal: str, left_s, trace: bool) -> Optional[str]:
+    """Try a sequence of deterministic one-line finishers on the whole goal.
+
+    Returns the full verified proof text (lemma + finisher) on the first finisher
+    that checks, else None. Each attempt is a single Isabelle verification with no
+    LLM involvement, so this is cheap relative to skeleton generation.
+
+    Ordering: cheapest/most-likely first (simp, auto), then induction variants
+    (which close most structural list/nat lemmas), then the heavier classical
+    tactics (blast, fastforce) for first-order/propositional goals.
+    """
+    vars_ = _candidate_induction_vars(goal)
+    # Cheap, high-yield tactics first; bail as soon as one closes the goal.
+    finishers: List[str] = ["by simp", "by auto"]
+    for v in vars_:
+        finishers.append(f"by (induct {v}) auto")
+        finishers.append(f"by (induct {v}) simp_all")
+    # blast is cheap enough to keep in the default set (closes most propositional/FO goals).
+    finishers.append("by blast")
+    # Heavy combinatorial finishers are expensive and rarely succeed where the above
+    # all failed; only attempt them when explicitly enabled for hard-goal runs.
+    if os.getenv("FASTPATH_HEAVY", "").strip().lower() in ("1", "true", "yes", "on"):
+        finishers += ["by fastforce", "by force", "by (simp add: algebra_simps)", "by (metis)"]
+
+    for fin in finishers:
+        # Respect the wall-clock budget; leave room for the skeleton fallback.
+        if left_s() <= 8.0:
+            if trace:
+                print("[fastpath] Time budget low; stopping finisher attempts early.")
+            break
+        candidate = f'lemma "{goal}"\n  {fin}\n'
+        try:
+            ok = _verify_full_proof(isabelle, session, candidate)
+        except (TimeoutError, _FuturesTimeout, ValueError):
+            ok = False
+        except Exception:
+            ok = False
+        if trace:
+            print(f"[fastpath] {fin:32s} -> {'OK' if ok else 'x'}")
+        if ok:
+            return candidate
+    return None
+
 def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *, mode: str = "auto",
                  outline_k: Optional[int] = None, outline_temps: Optional[Iterable[float]] = None,
                  legacy_single_outline: bool = False, repairs: bool = True,
@@ -491,6 +628,50 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
         isa, session, proc = isa2, session2, proc2
 
     try:
+        # -------------------------------------------------------------------
+        # PRE-VALIDATION: is the goal statement even a well-formed proposition?
+        # A parse/type error on the *statement* (as opposed to during a proof)
+        # means the goal is malformed input — not something the prover can or
+        # should attempt. We classify it as MALFORMED and return early, so it
+        # doesn't burn the fast-path / skeleton / repair budget and doesn't get
+        # counted as a genuine prover FAIL in benchmarks.
+        # Skippable via PARSECHECK_OFF=1.
+        if os.getenv("PARSECHECK_OFF", "").strip().lower() not in ("1", "true", "yes", "on"):
+            ok, detail = _goal_parses(isa, session, goal)
+            if not ok:
+                if trace:
+                    print(f"[plan] Goal statement does NOT parse in Isabelle ({detail}); "
+                          f"flagging as MALFORMED (not a prover failure).")
+                return PlanAndFillResult(False, f'lemma "{goal}"\n  (* MALFORMED: statement failed to parse *)\n', [], [], status="malformed")
+            elif trace:
+                print("[plan] Goal statement parses; proceeding.")
+
+        # -------------------------------------------------------------------
+        # FAST-PATH: try a few deterministic one-line finishers on the whole
+        # goal BEFORE invoking the LLM skeleton generator.
+        #
+        # Rationale (measured): a large fraction of goals are closable by a
+        # single library tactic (simp/auto/induct+auto/blast/fastforce). The
+        # structured-skeleton path is (a) non-deterministic — the same goal can
+        # pass or fail across runs depending on which skeleton is sampled — and
+        # (b) prone to mis-encoding the proof frame on goals that need no frame
+        # at all (e.g. emitting `proof -` + `assume` for an implication, or a
+        # stray `done`). Trying finishers first converts that band of goals into
+        # a deterministic yes/no and skips the expensive LLM call entirely when
+        # one succeeds. On hard goals all finishers fail cheaply (a few seconds
+        # of Isabelle time) and we fall through to the existing skeleton path.
+        #
+        # Disabled in 'outline' mode (caller explicitly wants placeholders) and
+        # skippable via FASTPATH_OFF=1 for ablation / benchmarking.
+        if mode != "outline" and os.getenv("FASTPATH_OFF", "").strip().lower() not in ("1", "true", "yes", "on"):
+            fp_proof = _try_direct_finishers(isa, session, goal, left_s, trace)
+            if fp_proof is not None:
+                if trace:
+                    print("[fastpath] Closed by a direct finisher; skipping skeleton generation.")
+                return PlanAndFillResult(True, fp_proof, [], [])
+            elif trace:
+                print("[fastpath] No direct finisher closed the goal; proceeding to skeleton.")
+
         # Generate outline
         if legacy_single_outline:
             full = propose_isar_skeleton(goal, model=model, temp=0.35, force_outline=(mode == "outline")).text
@@ -540,21 +721,56 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
 
         # Handle complete proofs
         if not spans:
+            if trace:
+                print("[plan] Skeleton came back with no 'sorry' holes; verifying as a complete proof...")
+            verified = False
             try:
-                if _verify_full_proof(isa, session, full):
-                    return PlanAndFillResult(True, full, [], [])
+                verified = _verify_full_proof(isa, session, full)
             except (TimeoutError, _FuturesTimeout, ValueError) as ex:
+                if trace:
+                    print(f"[plan] Full-proof verification raised {type(ex).__name__}: {ex}")
                 _restart_isabelle("verify_full_proof", ex)
 
+            if verified:
+                if trace:
+                    print("[plan] Complete proof verified on first try. Done.")
+                return PlanAndFillResult(True, full, [], [])
+
+            # Verification failed — surface WHY (the Isabelle rejection) so the trace
+            # shows the actual error rather than silently moving on.
+            if trace:
+                try:
+                    _, errs = _quick_state_and_errors(isa, session, full)
+                    if errs:
+                        print("[plan] Complete proof FAILED verification. Isabelle reported:")
+                        for m in errs[:5]:
+                            print(f"        - {str(m).strip()}")
+                    else:
+                        print("[plan] Complete proof FAILED verification (no specific error text captured).")
+                except Exception as ex:
+                    print(f"[plan] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}")
+
             if repairs and left_s() > 6.0:
+                if trace:
+                    print("[plan] Engaging top-down repair on the failed complete proof...")
                 full, ok = _repair_failed_proof_topdown(isa, session, full, goal, model, left_s, max_repairs_per_hole, trace)
                 if ok:
+                    if trace:
+                        print("[plan] Top-down repair produced a verified proof. Done.")
                     return PlanAndFillResult(True, full, [], [])
+                if trace:
+                    print("[plan] Top-down repair did not yield a verified proof.")
+            elif trace:
+                print("[plan] Skipping repair (disabled or insufficient time remaining).")
 
             full2, opened = _open_minimal_sorries(isa, session, full)
             full = full2 if opened else full
             if not opened:
+                if trace:
+                    print("[plan] Could not localise the failure into a 'sorry'; returning unverified proof as FAILED.")
                 return PlanAndFillResult(False, full, [], [0])
+            elif trace:
+                print("[plan] Localised the failing step into a 'sorry'; entering hole-fill loop.")
 
         # Fill holes
         lemma_line = _first_lemma_line(full)
@@ -693,7 +909,19 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                     STAGE1_CAP = 2
                     STAGE2_CAP = 3
 
-                    should_escalate = False
+                    # FALSE-SUBGOAL FAST-PATH:
+                    # If the per-line Nitpick/Quickcheck diagnostic proved that a
+                    # local obligation under this hole is FALSE, then leaf-level
+                    # tactic repair (stages 1-2) can never close it — the structure
+                    # containing that false `have` must be regenerated. Skip the
+                    # remaining caps and jump straight to whole-proof regeneration.
+                    false_lines = pop_false_subgoal_lines()
+                    force_regen = bool(false_lines)
+                    if force_regen and trace:
+                        print(f"[repair] FALSE subgoal proven at line(s) {sorted(false_lines)}; "
+                              f"skipping leaf-repair and regenerating whole proof.")
+
+                    should_escalate = force_regen
                     if start_stage == 1 and stage_tries[key] >= STAGE1_CAP:
                         should_escalate = True
                         if trace:
@@ -704,7 +932,9 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                             print(f"[repair] Stage 2 cap ({STAGE2_CAP}) reached. Regenerating whole proof...")
 
                     if should_escalate:
-                        if start_stage < 2:
+                        # A proven-false subgoal means stage-2 leaf repair is also
+                        # futile, so force the jump to regeneration regardless of stage.
+                        if start_stage < 2 and not force_regen:
                             repair_progress[hole_key] = 2
                             focused_hole_key = hole_key
                             continue

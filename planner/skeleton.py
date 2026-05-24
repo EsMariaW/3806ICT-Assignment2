@@ -394,6 +394,57 @@ def _normalize_show_kinds(text: str) -> str:
         lines[i] = SHOW_META_AT_SHOW.sub(_repl, L, count=1)
     return "\n".join(lines)
 
+def _drop_redundant_sorry(text: str) -> str:
+    """Remove a `sorry` that directly follows a finisher.
+
+    Models frequently emit BOTH a real finisher and a trailing `sorry` for the
+    same obligation, e.g.
+
+        have f1: "..."
+          using a1 by simp
+          sorry            <-- illegal: the `have` is already closed by `by simp`
+
+    The skeleton prompt's examples only ever model `sorry` at every leaf, which
+    nudges the model toward appending `sorry` even when it also supplied a `by`.
+    `_ensure_have_show_bodies` only *adds* missing bodies; it never removes this
+    redundant `sorry`, so the malformed pair survives and aborts the proof before
+    the fill/repair stages can run. This pass deletes the dangling `sorry` when the
+    nearest preceding non-blank line already closed the goal.
+
+    A line "closes the goal" if it is `done`, a bare `.`/`..`, a standalone
+    `by <method>`, or ends in an inline ` by <method>` (e.g. `using a1 by simp`).
+    We intentionally do NOT treat `proof`/`next`/`qed`/`case` as closers, so we
+    never strip a `sorry` that is the legitimate body of a freshly opened goal.
+
+    Additionally collapses *duplicate* sorries: a standalone `sorry` whose nearest
+    preceding non-blank line already ends the obligation with `sorry` (either a
+    standalone `sorry` or an inline `... sorry`, e.g. `have f4: "..." sorry`). The
+    model sometimes emits both an inline and a trailing sorry for one `have`, which
+    is malformed; we keep the first and drop the redundant follow-on.
+    """
+    lines = text.splitlines()
+    out: List[str] = []
+    # Index, in `out`, of the most recent non-blank line (for back-reference).
+    last_nonblank = -1
+    closer_by = re.compile(r"(?m)^\s*by\b")
+    closer_done = re.compile(r"(?m)^\s*(?:done|\.\.?)\s*$")
+    inline_by = re.compile(r"\s+by\s+\S")
+    ends_in_sorry = re.compile(r"\bsorry\s*$")
+    for L in lines:
+        if SORRY_RE.search(L) and L.strip() == "sorry" and last_nonblank >= 0:
+            prev = out[last_nonblank]
+            # (a) redundant after a real finisher
+            if closer_by.match(prev) or closer_done.match(prev) or inline_by.search(prev):
+                continue
+            # (b) duplicate sorry: the obligation is already terminated by a sorry
+            #     on the previous non-blank line (standalone or inline).
+            if ends_in_sorry.search(prev):
+                continue
+        out.append(L)
+        if L.strip() != "":
+            last_nonblank = len(out) - 1
+    return "\n".join(out)
+
 def _ensure_have_show_bodies(text: str) -> str:
     """
     Ensure every 'have …' / 'show …' has a body, but *preserve* local continuations:
@@ -486,9 +537,11 @@ def _sanitize_outline(text: str, goal: str, *, force_outline: bool) -> str:
 
     # Light Isar fixups (order matters)
     #  1) Flip only the meta after 'show', preserving 'then/using/from/with/finally' etc.
+    #  1b) Drop any 'sorry' that redundantly follows a 'by'/'done' finisher.
     #  2) Ensure every 'have/show' has a body; insert 'sorry' if missing to trigger fill/repair.
     #  3) Prefer 'proof -' when calculational cues are present.
     text = _normalize_show_kinds(text)
+    text = _drop_redundant_sorry(text)
     text = _ensure_have_show_bodies(text)
     text = _maybe_proof_dash(text)
 

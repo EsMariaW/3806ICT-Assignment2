@@ -150,6 +150,7 @@ Return ONLY the new BLOCK text (no fences)."""
 # -----------------------------------------------------------------------------
 # Prompt for OUTLINES  (nudged with ?case and calculational patterns)
 # -----------------------------------------------------------------------------
+# [FIX] two conditions: each obligation gets exactly one outcome & restating any part of goal must match exactly
 SKELETON_PROMPT = """You are an Isabelle/HOL expert. 
 
 TASK
@@ -160,6 +161,8 @@ HARD OUTPUT RULES
 - Begin at (or immediately after) the exact header:
   lemma "{goal}"
 - Produce exactly ONE lemma..qed block.
+- Each obligation gets EXACTLY ONE outcome: either a finisher (`by ...`/`done`) OR `sorry` — NEVER both. If you write `by simp` (or any `by ...`/`done`), do NOT also write `sorry` for that same step.
+- When you restate any part of the goal in an `assume`/`have`/`show`, copy its parenthesisation EXACTLY. Do not drop parentheses: `(∀x. P x) ∧ (∀x. Q x)` must NOT become `∀x. P x ∧ ∀x. Q x` (that changes the meaning).
 - Prefer structured proofs with named intermediate facts (e.g., f1, f2) that are then reused.
 - Use the right shell:
   • Induction: `proof (induction <var>)` → branches `case …` with `show ?case …`.
