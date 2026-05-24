@@ -579,28 +579,48 @@ def _try_direct_finishers(isabelle, session: str, goal: str, left_s, trace: bool
 
 def _syntax_fix_is_safe(original: str, fixed: str) -> bool:
     """
-    Check that the LLM syntax fix only changed parentheses/spacing/dots,
-    not logical content. Returns True if safe to use.
+    Check that the LLM syntax fix only changed parentheses, dots, and spacing.
+    Verifies that:
+    1. No tokens were added or removed
+    2. The order of tokens is preserved
+    3. No connectives or quantifiers were added/changed
     """
-    # Strip all parentheses, dots, spaces and compare token sets
-    def _tokens(s: str) -> set:
-        # Remove punctuation that's allowed to change
-        s = re.sub(r'[().\s]', ' ', s)
-        return set(s.split())
-    
-    orig_tokens = _tokens(original)
-    fixed_tokens = _tokens(fixed)
-    
-    # The fixed version must not have any new tokens
-    new_tokens = fixed_tokens - orig_tokens
-    if new_tokens:
+    # Tokens that must never be added or removed
+    _LOGICAL_TOKENS = {
+        '∀', '∃', '¬', '∧', '∨', '⟶', '⟷', '⟹', '=', '≠',
+        '≤', '≥', '<', '>', '+', '-', '*', '/', 'λ',
+        # ASCII equivalents
+        'ALL', 'EX', 'NOT', 'AND', 'OR',
+    }
+
+    def _extract_tokens(s: str) -> List[str]:
+        """Extract logical tokens in order, ignoring parens/dots/spaces."""
+        # Remove only parentheses, dots used as quantifier separators, and whitespace
+        s = re.sub(r'\(|\)', ' ', s)   # remove parens
+        s = re.sub(r'(?<=\w)\.(?=\s)', ' ', s)  # remove dots after quantifier vars
+        s = re.sub(r'\s+', ' ', s).strip()
+        return s.split()
+
+    orig_tokens = _extract_tokens(original)
+    fixed_tokens = _extract_tokens(fixed)
+
+    # Check 1: same length — no tokens added or removed
+    if len(orig_tokens) != len(fixed_tokens):
         return False
-    
-    # The fixed version must not have lost any tokens
-    lost_tokens = orig_tokens - fixed_tokens
-    if lost_tokens:
+
+    # Check 2: same order — every token matches positionally
+    for o, f in zip(orig_tokens, fixed_tokens):
+        if o != f:
+            return False
+
+    # Check 3: no new logical connectives or quantifiers in fixed
+    # (catches cases where order check passes but connective was substituted)
+    orig_set = set(orig_tokens)
+    fixed_set = set(fixed_tokens)
+    new_logical = (fixed_set - orig_set) & _LOGICAL_TOKENS
+    if new_logical:
         return False
-    
+
     return True
 
 def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *, mode: str = "auto",
