@@ -628,6 +628,28 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
         isa, session, proc = isa2, session2, proc2
 
     try:
+        # attempt to fix syntactical error
+        # fix negation: from ¬A to (¬A)
+        goal = re.sub(
+            r'¬\s*([A-Za-z][A-Za-z0-9_]*\s*\([^)]*\)|[A-Za-z][A-Za-z0-9_]*)', 
+            r'(¬\1)', 
+            goal
+        )
+        # fix universal quantifier: from ∀y. P y to (∀y. P y)
+        goal = re.sub(
+            r'(∀\s*[A-Za-z][A-Za-z0-9_]*\s*\.\s*[^⟷⟶∧∨⟹]+?)(?=⟷|⟶|∧|∨|⟹|$)',
+            r'(\1)',
+            goal
+        )
+        # fix existential quantifier: from ∃z. P z to (∃z. P z)
+        goal = re.sub(
+            r'(∃\s*[A-Za-z][A-Za-z0-9_]*\s*\.\s*[^⟷⟶∧∨⟹]+?)(?=⟷|⟶|∧|∨|⟹|$)',
+            r'(\1)',
+            goal
+        )
+        # fix double-parenthesisation
+        goal = re.sub(r'\(\(([^()]+)\)\)', r'(\1)', goal)
+
         # -------------------------------------------------------------------
         # PRE-VALIDATION: is the goal statement even a well-formed proposition?
         # A parse/type error on the *statement* (as opposed to during a proof)
