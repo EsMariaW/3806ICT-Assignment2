@@ -678,11 +678,11 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
         # goal string
         # → regex fixes (fast, free)
         # → _goal_parses() check
-        #     → parses? → continue normally ✅
+        #     → parses? → continue normally
         #     → fails? → LLM fix attempt (costs 1 API call, ~5s)
         #         → _goal_parses() check on fixed goal
-        #             → parses? → use fixed goal, continue ✅
-        #             → fails? → discard, return MALFORMED ❌
+        #             → parses? → use fixed goal, continue
+        #             → fails? → discard, return MALFORMED
 
         # attempt to fix syntactical error
         # fix negation: from ¬A to (¬A)
