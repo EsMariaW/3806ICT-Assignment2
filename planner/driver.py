@@ -49,10 +49,10 @@ class PlanAndFillResult:
 # Hole Filling
 # ============================================================================
 
-def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int, int], 
+def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int, int],
                   goal_text: str, model: Optional[str], per_hole_timeout: int, *, trace: bool = False) -> Tuple[str, bool, str]:
     """Fill single hole in proof."""
-    
+
     # Check for stale hole
     try:
         s_line_start = full_text.rfind("\n", 0, hole_span[0]) + 1
@@ -61,23 +61,23 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
         prev_line = full_text[prev_prev_nl:prev_line_end+1]
     except Exception:
         prev_line = ""
-    
-    if (_INLINE_BY_TAIL.search(prev_line) or _TACTIC_LINE_RE.match(prev_line) or 
+
+    if (_INLINE_BY_TAIL.search(prev_line) or _TACTIC_LINE_RE.match(prev_line) or
         prev_line.strip() in {"done", "."}):
         s, e = hole_span
         return full_text[:s] + "\n" + full_text[e:], True, "(stale-hole)"
-    
+
     state_block = _print_state_before_hole(isabelle, session, full_text, hole_span, trace)
     _log_state_block("fill", state_block, trace=trace)
-    
+
     # orig_goal = _original_goal_from_state(state_block)
     eff_goal = _effective_goal_from_state(state_block, goal_text, full_text, hole_span, trace)
-    
+
     # if trace:
     #     # if orig_goal:
     #     #     print(f"[fill] Original goal: {orig_goal}")
     #     print(f"[fill] Effective goal: {eff_goal}")
-    
+
     res = prove_goal(
         isabelle, session, eff_goal, model_name_or_ensemble=model,
         beam_w=3, max_depth=6, hint_lemmas=6, timeout=per_hole_timeout,
@@ -88,7 +88,7 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
         do_variants=False, variant_timeout=6, variant_tries=24,
         enable_reranker=True, initial_state_hint=state_block,
     )
-    
+
     steps = [str(s) for s in res.get("steps", [])]
 
     # Fallbacks: some backends return finishers/applies in separate keys
@@ -120,18 +120,18 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
     # If neither steps nor recognized finishers were returned, report no-steps
     if not (applies or fin):
         return full_text, False, "no-steps"
-    
+
     # Handle finisher
     if fin:
         script_lines = applies + [fin]
         insert = "\n  " + "\n  ".join(script_lines) + "\n"
         s, e = hole_span
         new_text = full_text[:s] + insert + full_text[e:]
-        
+
         if _verify_full_proof(isabelle, session, new_text):
             return new_text, True, "\n".join(script_lines)
         return full_text, False, "finisher-unverified"
-    
+
     # Handle apply-only  (NEVER mark success for apply-only scripts)
     if applies:
         # Decide if the hole sits under a have/show/obtain head; if so, we must NOT
@@ -165,7 +165,7 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
             # Non have/show context — keep existing behaviour (insert above, keep sorry)
             probe_text = _insert_above_hole_keep_sorry(full_text, hole_span, dedup)
             return probe_text, False, "\n".join(dedup)
-    
+
     return full_text, False, "no-tactics"
 
 
@@ -194,12 +194,12 @@ def _proof_bounds_top_level(text: str) -> Optional[Tuple[int, int]]:
     qed_matches = list(re.finditer(r"(?m)^\s*qed\b", text))
     if not qed_matches:
         return None
-    
+
     end = qed_matches[-1].end()
     proof_matches = list(re.finditer(r"(?m)^\s*proof\b.*$", text[:qed_matches[-1].start()]))
     if not proof_matches:
         return None
-    
+
     return (proof_matches[-1].start(), end)
 
 
@@ -208,17 +208,17 @@ def _tactic_spans_topdown(text: str) -> List[Tuple[int, int]]:
     bounds = _proof_bounds_top_level(text)
     if not bounds:
         return []
-    
+
     b0, b1 = bounds
     seg = text[b0:b1]
     lines = seg.splitlines(True)
     spans, off = [], b0
-    
+
     for line in lines:
         if _TACTIC_LINE_RE.match(line or "") or _INLINE_BY_TAIL.search(line or ""):
             spans.append((off, off + len(line.rstrip("\n"))))
         off += len(line)
-    
+
     return spans
 
 def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model: Optional[str],
@@ -311,7 +311,7 @@ def _quick_state_and_errors(isabelle, session: str, text: str, *, timeout_s: Opt
         return state, errs
     except Exception as ex:
         return "", [str(ex)]
-    
+
 def _extract_error_lines(errs: List[str]) -> List[int]:
     """Extract 1-based line numbers from Isabelle error messages (best-effort)."""
     if not errs:
@@ -407,14 +407,14 @@ def plan_outline(goal: str, *, model: Optional[str] = None, outline_k: Optional[
     server_info, proc = start_isabelle_server(name="planner", log_file="logs/planner_ui.log")
     isa = get_isabelle_client(server_info)
     session = isa.session_start(session=ISABELLE_SESSION)
-    
+
     try:
         if legacy_single_outline:
             return propose_isar_skeleton(goal, model=model, temp=0.35, force_outline=True).text
-        
+
         temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
         k = int(outline_k) if outline_k is not None else 3
-        
+
         best, _ = propose_isar_skeleton_diverse_best(
             goal, isabelle=isa, session_id=session, model=model, temps=temps, k=k,
             force_outline=True, priors_path=priors_path, context_hints=context_hints,
@@ -573,13 +573,16 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
       - Repair/verification timeouts or broken Isabelle responses must not crash the caller.
         We treat them as repair failures, and (best-effort) restart Isabelle for subsequent calls.
     """
+
     if repair_trace and not trace:
         trace = True
 
+    # Start Isabelle server and session for the planner
     server_info, proc = start_isabelle_server(name="planner", log_file="logs/planner_ui.log")
     isa = get_isabelle_client(server_info)
     session = isa.session_start(session=ISABELLE_SESSION)
 
+    # Timer
     t0 = time.monotonic()
     left_s = lambda: max(0.0, timeout - (time.monotonic() - t0))
 
@@ -652,6 +655,8 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
         # Generate outline
         if legacy_single_outline:
             full = propose_isar_skeleton(goal, model=model, temp=0.35, force_outline=(mode == "outline")).text
+        # Default mode -> generate many skeletons and pick best
+        # NOTE: Get Best Proof
         else:
             temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
             k = int(outline_k) if outline_k is not None else 3
@@ -664,12 +669,16 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
             )
             full = best.text
 
+        # NOTE: Outline Contains Sorries?
         spans = find_sorry_spans(full)
 
+        # If its just a outline, don't try to fill or verify
         if mode == "outline":
             return PlanAndFillResult(True, full, [], [])
 
-        # Handle complete proofs
+        # Handle complete proofs  [FIX] adding a bunch of trace lines
+        # No spans means no sorry holes, attempt to verify if proof is complete
+        # NOTE: If nitpick returns counter example
         if not spans:
             if trace:
                 print("[plan] Skeleton came back with no 'sorry' holes; verifying as a complete proof...")
