@@ -835,15 +835,15 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             )
             full = best.text
 
-            # Fix 2: explicitly split time between skeleton generation and repair
-            # Reset the clock reference for repair/fill stage
-            # Guarantee repair gets at least _repair_reserve_s seconds
-            _repair_start = time.monotonic()
-            _repair_end = min(
-                _repair_start + _repair_reserve_s,  # guaranteed minimum
-                t0 + timeout                          # but never beyond total timeout
-            )
-            left_s = lambda: max(0.0, _repair_end - time.monotonic())
+        # Fix 2: explicitly split time between skeleton generation and repair
+        # Reset the clock reference for repair/fill stage
+        # Guarantee repair gets at least _repair_reserve_s seconds
+        _repair_start = time.monotonic()
+        _repair_end = min(
+            _repair_start + _repair_reserve_s,  # guaranteed minimum
+            t0 + timeout                          # but never beyond total timeout
+        )
+        left_s = lambda: max(0.0, _repair_end - time.monotonic())
 
         spans = find_sorry_spans(full)
 
@@ -881,7 +881,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 except Exception as ex:
                     print(f"[plan] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}")
 
-            if repairs and left_s() > 6.0:
+            if repairs and left_s() > 3.0:    # Fix to match thresholds (changed from >6.0)
                 if trace:
                     print("[plan] Engaging top-down repair on the failed complete proof...")
                 full, ok = _repair_failed_proof_topdown(isa, session, full, goal, model, left_s, max_repairs_per_hole, trace)

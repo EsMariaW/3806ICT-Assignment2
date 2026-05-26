@@ -161,6 +161,11 @@ _gemini_last_call_time: float = 0.0
 def _generate_simple(prompt: str, model: Optional[str] = None, *, timeout_s: Optional[int] = None) -> str:
     m = model or DEFAULT_MODEL
     timeout = timeout_s or OLLAMA_TIMEOUT_S
+
+    print(f"\n{'='*60}")
+    print(f"[LLM repair] model={m}")
+    print(f"[LLM skeleton] PROMPT (from repair.py):\n{prompt}")
+    print(f"\n{'='*60}")
     
     if m.startswith("hf:"):
         raw = _hf_generate(prompt, m[3:], timeout)
@@ -181,9 +186,8 @@ def _generate_simple(prompt: str, model: Optional[str] = None, *, timeout_s: Opt
     else:
         raw = _ollama_generate(prompt, m, timeout)
 
-
-    # [FIX] some tracing
-    print(f"\n{'='*60}")
+    # [FIX] some tracing    
+    print(f"{'='*60}\n")
     print(f"[LLM repair] model={m}")
     print(f"[LLM repair] RAW RESPONSE (from repair.py):\n{raw}")
     print(f"{'='*60}\n")

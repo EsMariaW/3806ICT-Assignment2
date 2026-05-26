@@ -230,6 +230,12 @@ def _generate_simple(
     num_predict: Optional[int] = None,
     timeout_s: Optional[int] = None,
 ) -> str:
+    
+    print(f"\n{'='*60}")
+    print(f"[LLM skeleton] model={model}  temp={temperature}")
+    print(f"[LLM skeleton] PROMPT (from skeleton.py):\n{prompt}")
+    print(f"\n{'='*60}")
+
     if model:
         if model.startswith("hf:"):
             raw = _hf_generate_simple(
