@@ -49,10 +49,10 @@ class PlanAndFillResult:
 # Hole Filling
 # ============================================================================
 
-def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int, int], 
+def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int, int],
                   goal_text: str, model: Optional[str], per_hole_timeout: int, *, trace: bool = False) -> Tuple[str, bool, str]:
     """Fill single hole in proof."""
-    
+
     # Check for stale hole
     try:
         s_line_start = full_text.rfind("\n", 0, hole_span[0]) + 1
@@ -61,23 +61,23 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
         prev_line = full_text[prev_prev_nl:prev_line_end+1]
     except Exception:
         prev_line = ""
-    
-    if (_INLINE_BY_TAIL.search(prev_line) or _TACTIC_LINE_RE.match(prev_line) or 
+
+    if (_INLINE_BY_TAIL.search(prev_line) or _TACTIC_LINE_RE.match(prev_line) or
         prev_line.strip() in {"done", "."}):
         s, e = hole_span
         return full_text[:s] + "\n" + full_text[e:], True, "(stale-hole)"
-    
+
     state_block = _print_state_before_hole(isabelle, session, full_text, hole_span, trace)
     _log_state_block("fill", state_block, trace=trace)
-    
+
     # orig_goal = _original_goal_from_state(state_block)
     eff_goal = _effective_goal_from_state(state_block, goal_text, full_text, hole_span, trace)
-    
+
     # if trace:
     #     # if orig_goal:
     #     #     print(f"[fill] Original goal: {orig_goal}")
     #     print(f"[fill] Effective goal: {eff_goal}")
-    
+
     res = prove_goal(
         isabelle, session, eff_goal, model_name_or_ensemble=model,
         beam_w=3, max_depth=6, hint_lemmas=6, timeout=per_hole_timeout,
@@ -88,7 +88,7 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
         do_variants=False, variant_timeout=6, variant_tries=24,
         enable_reranker=True, initial_state_hint=state_block,
     )
-    
+
     steps = [str(s) for s in res.get("steps", [])]
 
     # Fallbacks: some backends return finishers/applies in separate keys
@@ -120,18 +120,18 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
     # If neither steps nor recognized finishers were returned, report no-steps
     if not (applies or fin):
         return full_text, False, "no-steps"
-    
+
     # Handle finisher
     if fin:
         script_lines = applies + [fin]
         insert = "\n  " + "\n  ".join(script_lines) + "\n"
         s, e = hole_span
         new_text = full_text[:s] + insert + full_text[e:]
-        
+
         if _verify_full_proof(isabelle, session, new_text):
             return new_text, True, "\n".join(script_lines)
         return full_text, False, "finisher-unverified"
-    
+
     # Handle apply-only  (NEVER mark success for apply-only scripts)
     if applies:
         # Decide if the hole sits under a have/show/obtain head; if so, we must NOT
@@ -165,7 +165,7 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
             # Non have/show context — keep existing behaviour (insert above, keep sorry)
             probe_text = _insert_above_hole_keep_sorry(full_text, hole_span, dedup)
             return probe_text, False, "\n".join(dedup)
-    
+
     return full_text, False, "no-tactics"
 
 
@@ -194,12 +194,12 @@ def _proof_bounds_top_level(text: str) -> Optional[Tuple[int, int]]:
     qed_matches = list(re.finditer(r"(?m)^\s*qed\b", text))
     if not qed_matches:
         return None
-    
+
     end = qed_matches[-1].end()
     proof_matches = list(re.finditer(r"(?m)^\s*proof\b.*$", text[:qed_matches[-1].start()]))
     if not proof_matches:
         return None
-    
+
     return (proof_matches[-1].start(), end)
 
 
@@ -208,17 +208,17 @@ def _tactic_spans_topdown(text: str) -> List[Tuple[int, int]]:
     bounds = _proof_bounds_top_level(text)
     if not bounds:
         return []
-    
+
     b0, b1 = bounds
     seg = text[b0:b1]
     lines = seg.splitlines(True)
     spans, off = [], b0
-    
+
     for line in lines:
         if _TACTIC_LINE_RE.match(line or "") or _INLINE_BY_TAIL.search(line or ""):
             spans.append((off, off + len(line.rstrip("\n"))))
         off += len(line)
-    
+
     return spans
 
 def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model: Optional[str],
@@ -330,7 +330,7 @@ def _quick_state_and_errors(isabelle, session: str, text: str, *, timeout_s: Opt
         return state, errs
     except Exception as ex:
         return "", [str(ex)]
-    
+
 def _extract_error_lines(errs: List[str]) -> List[int]:
     """Extract 1-based line numbers from Isabelle error messages (best-effort)."""
     if not errs:
@@ -426,14 +426,14 @@ def plan_outline(goal: str, *, model: Optional[str] = None, outline_k: Optional[
     server_info, proc = start_isabelle_server(name="planner", log_file="logs/planner_ui.log")
     isa = get_isabelle_client(server_info)
     session = isa.session_start(session=ISABELLE_SESSION)
-    
+
     try:
         if legacy_single_outline:
             return propose_isar_skeleton(goal, model=model, temp=0.35, force_outline=True).text
-        
+
         temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
         k = int(outline_k) if outline_k is not None else 3
-        
+
         best, _ = propose_isar_skeleton_diverse_best(
             goal, isabelle=isa, session_id=session, model=model, temps=temps, k=k,
             force_outline=True, priors_path=priors_path, context_hints=context_hints,
@@ -623,6 +623,7 @@ def _syntax_fix_is_safe(original: str, fixed: str) -> bool:
 
     return True
 
+# NOTE 1.1: Input Goal (Main entry point for program)
 def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *, mode: str = "auto",
                  outline_k: Optional[int] = None, outline_temps: Optional[Iterable[float]] = None,
                  legacy_single_outline: bool = False, repairs: bool = True,
@@ -641,10 +642,12 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
     if repair_trace and not trace:
         trace = True
 
+    # Start up an Isabelle server and session for this planning/filling attempt
     server_info, proc = start_isabelle_server(name="planner", log_file="logs/planner_ui.log")
     isa = get_isabelle_client(server_info)
     session = isa.session_start(session=ISABELLE_SESSION)
 
+    # Timer
     t0 = time.monotonic()
     left_s = lambda: max(0.0, timeout - (time.monotonic() - t0))
 
@@ -674,6 +677,7 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
         isa, session, proc = isa2, session2, proc2
 
     try:
+        # NOTE 1.2: Verify goal string correctness
         # attempted fix workflow:
         # goal string
         # → regex fixes (fast, free)
@@ -687,8 +691,8 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
         # attempt to fix syntactical error
         # fix negation: from ¬A to (¬A)
         goal = re.sub(
-            r'¬\s*([A-Za-z][A-Za-z0-9_]*\s*\([^)]*\)|[A-Za-z][A-Za-z0-9_]*)', 
-            r'(¬\1)', 
+            r'¬\s*([A-Za-z][A-Za-z0-9_]*\s*\([^)]*\)|[A-Za-z][A-Za-z0-9_]*)',
+            r'(¬\1)',
             goal
         )
         # fix universal quantifier: from ∀y. P y to (∀y. P y)
@@ -777,6 +781,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             elif trace:
                 print("[plan] Goal statement parses; proceeding.")
 
+        # NOTE 1.3: Try one-line finishers on goal
         # -------------------------------------------------------------------
         # FAST-PATH: try a few deterministic one-line finishers on the whole
         # goal BEFORE invoking the LLM skeleton generator.
@@ -804,7 +809,8 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 print("[fastpath] No direct finisher closed the goal; proceeding to skeleton.")
 
         # Generate outline
-        if legacy_single_outline:
+        # NOTE: 1.4 Get best proof outline from LLM
+        if legacy_single_outline: # Legacy only makes one skeleton
             full = propose_isar_skeleton(goal, model=model, temp=0.35, force_outline=(mode == "outline")).text
 
             # Fix 2: repair timer
@@ -820,8 +826,6 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 )
             )
             left_s = lambda: max(0.0, _repair_end - time.monotonic())
-
-
         else:
             temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
             k = int(outline_k) if outline_k is not None else 3
@@ -831,7 +835,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 context_hints=context_hints, lib_templates=lib_templates,
                 alpha=alpha, beta=beta, gamma=gamma, hintlex_path=hintlex_path,
                 hintlex_top=hintlex_top,
-                timeout_s = int(_skeleton_budget_s)    # Fix 2: explicitly split time between skeleton generation and repair 
+                timeout_s = int(_skeleton_budget_s)    # Fix 2: explicitly split time between skeleton generation and repair
             )
             full = best.text
 
@@ -845,12 +849,15 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
         )
         left_s = lambda: max(0.0, _repair_end - time.monotonic())
 
+        # Get location of all sorry holes in the skeleton
         spans = find_sorry_spans(full)
 
+        # Outline simply returns the created skeleton
         if mode == "outline":
             return PlanAndFillResult(True, full, [], [])
 
         # Handle complete proofs
+        # NOTE: 1.5 Run Isabelle on current proof outline if no sorries
         if not spans:
             if trace:
                 print("[plan] Skeleton came back with no 'sorry' holes; verifying as a complete proof...")
@@ -894,6 +901,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             elif trace:
                 print("[plan] Skipping repair (disabled or insufficient time remaining).")
 
+            # Attempt to localise failure and fill with a sorry
             full2, opened = _open_minimal_sorries(isa, session, full)
             full = full2 if opened else full
             if not opened:
@@ -903,44 +911,63 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             elif trace:
                 print("[plan] Localised the failing step into a 'sorry'; entering hole-fill loop.")
 
-        # Fill holes
+        # Get the lemma line (Line starting with lemma that contains the goal)
         lemma_line = _first_lemma_line(full)
         if not lemma_line:
             return PlanAndFillResult(False, full, [], [0])
 
+        # Extract the goal text from the lemma line
         goal_text = _extract_goal_from_lemma_line(lemma_line)
-        fills: List[str] = []
-        failed: List[int] = []
-        repair_progress: dict[str, int] = {}
-        stage_tries: dict[Tuple[str, int], int] = {}
-        _skip_fill_logged_once: set[Tuple[str, int]] = set()
+        fills: List[str] = [] # Replacement fragments that filled holes
+        failed: List[int] = [] # NOTE not really used?
+        repair_progress: dict[str, int] = {} # Track repair stage per hole
+        stage_tries: dict[Tuple[str, int], int] = {} # Tracks number of repair attempts per (hole, stage)
+        _skip_fill_logged_once: set[Tuple[str, int]] = set() # For logging when we skip fill attempts due to escalating repairs
+        focused_hole_key: Optional[str] = None # Focus on a specific hole across iterations
 
-        focused_hole_key: Optional[str] = None
-
+        # Fill and repair loop
+        # NOTE: 2.1 Trigger Fill
         while "sorry" in full and left_s() > 0:
+
+            # Get sorry holes
             spans = find_sorry_spans(full)
             if not spans:
                 break
 
+            # Choose focused hole if possible, otherwise chosoe first hole
+            # NOTE not sure how stable hole idenity, changes to sournding holes can stuff it?
+            # NOTE I think more stable proof context would be better (structured lists and sublists for nesting?)
+            # NOTE Maybe better for passing stuff to the LLM too, less brittle than raw text spans?
+            # ProofBlock
+            # ├── case Nil
+            # │   └── hole A
+            # └── case Cons
+            #     ├── have f1
+            #     │   └── hole B
+            #     └── show ?case
+            #         └── hole C
+
             span = None
             if focused_hole_key is not None:
                 for s in spans:
+                    # Try to find previously used hole
                     if _hole_fingerprint(full, s) == focused_hole_key:
                         span = s
                         break
                 if span is None:
+                    # previous hole has been closed
                     if trace:
                         print(f"[fill] Focused hole @{focused_hole_key} was closed. Moving to first hole.")
                     focused_hole_key = None
 
             if span is None:
                 span = spans[0]
-
-            hole_key = _hole_fingerprint(full, span)
-            per_hole_budget = int(max(5, left_s() / max(1, len(spans))))
-            start_stage = repair_progress.get(hole_key, 0)
+            hole_key = _hole_fingerprint(full, span) # Get hole key for tracking repair progress
+            per_hole_budget = int(max(5, left_s() / max(1, len(spans))))  # How much time to spend on hole
+            start_stage = repair_progress.get(hole_key, 0) # What repair stage the current hole is in
 
             # Always try fill first unless we're in escalated repair stages
+            # NOTE: 3.1 Stage 1 Local Repair
             if start_stage == 0:
                 try:
                     full2, ok, script = _fill_one_hole(
@@ -955,6 +982,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                         print(f"[fill] _fill_one_hole crashed: {type(ex).__name__}: {ex}")
                     full2, ok, script = full, False, "fill-exception"
 
+                # fill suceedes and makes verified progress: accept and continue to next hole
                 if ok and full2 != full:
                     full = full2
                     fills.append(script)

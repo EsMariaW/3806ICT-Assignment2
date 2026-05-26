@@ -737,12 +737,12 @@ def propose_isar_skeletons(
 ) -> List[Skeleton]:
     temps_list = list(temps)[:k] if k else list(temps)
     n_calls = len(temps_list)
-    
+
     # For API models: parallel. For local: sequential.
     is_api_model = model and (
         model.startswith("gemini:") or model.startswith("hf:")
     )
-    
+
     if not is_api_model or n_calls == 1:
         # Original sequential path — safe for Ollama
         per_call_timeout = max(20, int(timeout_s * 0.8 / max(1, n_calls))
@@ -757,8 +757,8 @@ def propose_isar_skeletons(
                 raw = _generate_simple(prompt=prompt, model=model or DEFAULT_MODEL,
                                        temperature=float(t), timeout_s=per_call_timeout)
             except Exception as e:
-                if trace:
-                    print(f"[skeleton] call at temp={t} failed: {type(e).__name__}: {e}")
+                #NOTE trace not passed if trace:
+                print(f"[skeleton] call at temp={t} failed: {type(e).__name__}: {e}")
                 continue
             # #Fix: The inter-request sleep for Gemini is already applied inside
             # #Fix: _generate_simple after every gemini: call, so no extra sleep needed here.
@@ -773,7 +773,7 @@ def propose_isar_skeletons(
                 break
         return out or [propose_isar_skeleton(goal, model=model, temp=0.35,
                                              force_outline=force_outline, hints=hints)]
-    
+
     # API parallel path
     # Each worker gets the full timeout — they run concurrently so wall-clock ~= one call
     per_call_timeout = max(20, int((timeout_s or OLLAMA_TIMEOUT_S) * 0.85))
@@ -896,7 +896,7 @@ def propose_isar_skeleton_diverse_best(
     # NEW: hint lexicon
     hintlex_path: Optional[str] = None,
     hintlex_top: int = 8,
-    timeout_s: Optional[int] = None,    # Fix 2 
+    timeout_s: Optional[int] = None,    # Fix 2
 ) -> Tuple[Skeleton, Dict[str, Any]]:
     """
     Generate K outlines, optionally inject context & hintlex hints, run one-shot sketch checks,
