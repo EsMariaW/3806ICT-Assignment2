@@ -36,14 +36,26 @@ def _run_theory_with_timeout(isabelle, session: str, thy: List[str], *, timeout_
             raise TimeoutError("isabelle_run_timeout")
 
 def _earliest_failure_anchor(isabelle, session: str, full_text: str, *, default_line_0: int) -> Tuple[int, str]:
+    # build_theory prepends a 3-line header ("theory Scratch" / "imports …" /
+    # "begin") before the proof body, so Isabelle's 1-based pos.line is offset
+    # from the proof-text line by exactly this many lines. We subtract it to map
+    # an error position back onto the proof text we index into here. (The header
+    # is always 3 lines regardless of how many imports are listed.)
+    _HEADER_OFFSET = 3
     try:
         lines = full_text.splitlines()
         _, errs = _quick_state_and_errors(isabelle, session, full_text)
         err_lines = sorted(_extract_error_lines(errs))
         if err_lines:
-            pos0 = err_lines[0] - 1
+            # theory line -> proof-text 0-based index: subtract header, then 1 for 0-based.
+            pos0 = err_lines[0] - 1 - _HEADER_OFFSET
             if 0 <= pos0 < len(lines):
                 return pos0, "error_line"
+            # Fallback A: if header correction over/undershot but the *raw* 0-based
+            # line is in range, use that (defensive — keeps prior behaviour working).
+            raw0 = err_lines[0] - 1
+            if 0 <= raw0 < len(lines):
+                return raw0, "error_line_raw"
             for i, L in enumerate(lines):
                 if "sorry" in L:
                     return i, "first_sorry_from_error"
@@ -136,7 +148,14 @@ def _quick_state_and_errors(isabelle, session: str, full_text: str) -> Tuple[str
                             if str(msg.get("kind", "")).lower() == "error":
                                 txt = str(msg.get("message", "") or "").strip()
                                 if txt:
-                                    errors.append({"text": txt, "line": msg.get("line")})
+                                    # Isabelle nests the line number under "pos":{"line":N}.
+                                    # Read pos.line first; fall back to a top-level "line"
+                                    # key for any error shape that provides it directly.
+                                    pos = msg.get("pos") or {}
+                                    line_no = pos.get("line") if isinstance(pos, dict) else None
+                                    if line_no is None:
+                                        line_no = msg.get("line")
+                                    errors.append({"text": txt, "line": line_no})
             except (json.JSONDecodeError, TypeError, AttributeError):
                 pass
             

@@ -330,7 +330,7 @@ def _extract_print_state_from_responses(resps: List) -> str:
                         or text.strip().startswith('Undefined fact: "assms"')
                         or text.strip().startswith('Undefined fact: "set_empty_conv"')
                     )
-                    if not benign:
+                    if not benign and os.getenv("PROVER_DEBUG", "").strip().lower() in ("1", "true", "yes", "on"):
                         print(f"[DEBUG ERROR]: {text[:300]}")
 
     # print(f"[DEBUG] Total writeln messages: {debug_writeln_count}, LLM markers found: {debug_llm_found}")
@@ -359,7 +359,8 @@ def _print_state_before_hole(isabelle, session: str, full_text: str, hole_span: 
         #             print(f"{i:3d}: {ln}")
         #     print("=" * 60)
         resps = _run_theory_with_timeout(isabelle, session, thy, timeout_s=_ISA_FAST_TIMEOUT_S)
-        print(f"[DEBUG RESPS] type={type(resps)}, value={repr(resps)[:200]}")
+        if os.getenv("PROVER_DEBUG", "").strip().lower() in ("1", "true", "yes", "on"):
+            print(f"[DEBUG RESPS] type={type(resps)}, value={repr(resps)[:200]}")
         state = _extract_print_state_from_responses(resps)
         # if trace:
         #     print(f"[DEBUG] State block contains [LLM_VARS]: {_LLM_VARS_MARK in state}")
