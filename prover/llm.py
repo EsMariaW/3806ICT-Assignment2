@@ -21,6 +21,28 @@ def _log(msg: str) -> None:
     if _VERBOSE:
         print(f"[llm] {msg}", flush=True)
 
+def _dump_llm_io(kind: str, model: str, system_prompt: str, user_prompt: str, raw: str) -> None:
+    if os.getenv("LLM_DUMP", "").strip().lower() not in ("1", "true", "yes", "on"):
+        return
+
+    full_prompt = _join_prompts(system_prompt, user_prompt)
+
+    print("\n" + "=" * 100)
+    print(f"[LLM {kind}] model={model}")
+    print("-" * 100)
+    print("[SYSTEM PROMPT]")
+    print(system_prompt)
+    print("-" * 100)
+    print("[USER PROMPT]")
+    print(user_prompt)
+    print("-" * 100)
+    # print("[FULL PROMPT SENT TO BACKEND]")
+    # print(full_prompt)
+    # print("-" * 100)
+    print("[RAW RESPONSE]")
+    print(raw)
+    print("=" * 100 + "\n", flush=True)
+
 # Shared HTTP session for connection reuse (Ollama, HF API)
 _SESSION = requests.Session()
 
@@ -215,22 +237,28 @@ def _generate_for_model(
       - (no prefix)      -> Ollama (back-compat)
     """
     _log(f"route: {detect_backend_for_model(model)}")
-    if model.startswith("gemini:"):
-        return _gemini_cli_generate(system_prompt, user_prompt, model.split(":", 1)[1])
 
-    if model.startswith("hf:"):
+    if model.startswith("gemini:"):
+        raw = _gemini_cli_generate(system_prompt, user_prompt, model.split(":", 1)[1])
+
+    elif model.startswith("hf:"):
         repo = model.split(":", 1)[1]
         force_local = os.getenv("HF_MODE", "").strip().lower() == "local"
         has_token = bool(os.getenv("HF_API_TOKEN") or os.getenv("HUGGINGFACEHUB_API_TOKEN"))
         if has_token and not force_local:
-            return _hf_inference_api_generate(system_prompt, user_prompt, repo, temperature=temperature)
-        return _hf_local_generate(system_prompt, user_prompt, repo, temperature=temperature)
+            raw = _hf_inference_api_generate(system_prompt, user_prompt, repo, temperature=temperature)
+        else:
+            raw = _hf_local_generate(system_prompt, user_prompt, repo, temperature=temperature)
 
-    if model.startswith("ollama:"):
-        return _ollama_generate(system_prompt, user_prompt, model.split(":", 1)[1], temperature=temperature)
+    elif model.startswith("ollama:"):
+        raw = _ollama_generate(system_prompt, user_prompt, model.split(":", 1)[1], temperature=temperature)
 
-    # Back-compat: treat unprefixed names as Ollama models (e.g., "qwen3-coder:30b")
-    return _ollama_generate(system_prompt, user_prompt, model, temperature=temperature)
+    else:
+        # Back-compat: treat unprefixed names as Ollama models, e.g. "qwen3-coder:30b"
+        raw = _ollama_generate(system_prompt, user_prompt, model, temperature=temperature)
+
+    _dump_llm_io("prover", model, system_prompt, user_prompt, raw)
+    return raw
 
 
 # ---------------------------
@@ -334,7 +362,7 @@ def propose_finishers(
     temp: float | None = None,
     reranker=None,
     premise_scores: Optional[Dict[str, Tuple[float, float]]] = None,
-    premise_pool: Optional[Dict[str, float]] = None,    
+    premise_pool: Optional[Dict[str, float]] = None,
 ) -> List[str]:
     user = USER_TEMPLATE.format(
         goal=goal,
@@ -396,7 +424,7 @@ def propose_finishers(
                 float(premise_pool.get("n_premises", 0.0)),
             ]
         else:
-            premise_tail = [0.0, 0.0, 0.0, 0.0, float(len(facts) if facts else 0.0)]        
+            premise_tail = [0.0, 0.0, 0.0, 0.0, float(len(facts) if facts else 0.0)]
         def rscore(cmd: str) -> float:
             try:
                 feats = live_features_for(cmd, goal, state_hint, depth=0)

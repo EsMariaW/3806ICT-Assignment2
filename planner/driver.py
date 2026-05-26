@@ -44,6 +44,14 @@ class PlanAndFillResult:
     # goal statement itself fails to parse in Isabelle (not a prover failure).
     status: Optional[str] = None
 
+def _print_selected_skeleton(label: str, full: str, trace: bool) -> None:
+    if not trace:
+        return
+    print("\n" + "=" * 100)
+    print(f"[driver] {label}")
+    print("-" * 100)
+    print(full)
+    print("=" * 100 + "\n", flush=True)
 
 # ============================================================================
 # Hole Filling
@@ -812,6 +820,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
         # NOTE: 1.4 Get best proof outline from LLM
         if legacy_single_outline: # Legacy only makes one skeleton
             full = propose_isar_skeleton(goal, model=model, temp=0.35, force_outline=(mode == "outline")).text
+            _print_selected_skeleton("SELECTED SKELETON / OUTLINE (legacy_single_outline)", full, trace)
 
             # Fix 2: repair timer
             _repair_start = time.monotonic()
@@ -838,6 +847,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 timeout_s = int(_skeleton_budget_s)    # Fix 2: explicitly split time between skeleton generation and repair
             )
             full = best.text
+            _print_selected_skeleton("SELECTED SKELETON / OUTLINE (diverse_best)", full, trace)
 
         # Fix 2: explicitly split time between skeleton generation and repair
         # Reset the clock reference for repair/fill stage
