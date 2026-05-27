@@ -787,7 +787,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                           f"flagging as MALFORMED (not a prover failure).")
                 return PlanAndFillResult(False, f'lemma "{goal}"\n  (* MALFORMED: statement failed to parse *)\n', [], [], status="malformed")
             elif trace:
-                print("[plan] Goal statement parses; proceeding.")
+                print("[plan] Goal statement parses; proceeding.", flush=True)
 
         # NOTE 1.3: Try one-line finishers on goal
         # -------------------------------------------------------------------
@@ -814,13 +814,20 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     print("[fastpath] Closed by a direct finisher; skipping skeleton generation.")
                 return PlanAndFillResult(True, fp_proof, [], [])
             elif trace:
-                print("[fastpath] No direct finisher closed the goal; proceeding to skeleton.")
+                print("[fastpath] No direct finisher closed the goal; proceeding to skeleton.", flush=True)
 
         # Generate outline
         # NOTE: 1.4 Get best proof outline from LLM
         if legacy_single_outline: # Legacy only makes one skeleton
-            full = propose_isar_skeleton(goal, model=model, temp=0.35, force_outline=(mode == "outline")).text
-            _print_selected_skeleton("SELECTED SKELETON / OUTLINE (legacy_single_outline)", full, trace)
+            if trace:
+                print("[plan] Generating skeleton with legacy single-outline method...", flush=True)
+            full = propose_isar_skeleton(
+                goal, model=model, temp=0.35,
+                force_outline=(mode == "outline"), trace=trace
+            ).text
+            if trace:
+                print("[plan] Skeleton generation (legacy single outline) completed", flush=True)
+                _print_selected_skeleton("SELECTED SKELETON / OUTLINE (legacy_single_outline)", full, trace)
 
             # Fix 2: repair timer
             _repair_start = time.monotonic()
@@ -838,16 +845,33 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
         else:
             temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
             k = int(outline_k) if outline_k is not None else 3
-            best, _ = propose_isar_skeleton_diverse_best(
+            if trace:
+                print(
+                    f"[plan] Generating {k} skeleton candidates with temps {temps} "
+                    f"(budget={int(_skeleton_budget_s)}s)...",
+                    flush=True,
+                )
+            best, diag = propose_isar_skeleton_diverse_best(
                 goal, isabelle=isa, session_id=session, model=model, temps=temps, k=k,
                 force_outline=(mode == "outline"), priors_path=priors_path,
                 context_hints=context_hints, lib_templates=lib_templates,
                 alpha=alpha, beta=beta, gamma=gamma, hintlex_path=hintlex_path,
                 hintlex_top=hintlex_top,
-                timeout_s = int(_skeleton_budget_s)    # Fix 2: explicitly split time between skeleton generation and repair
+                timeout_s=int(_skeleton_budget_s), # Fix 2: explicitly split time between skeleton generation and repair
+                trace=trace,
             )
             full = best.text
-            _print_selected_skeleton("SELECTED SKELETON / OUTLINE (diverse_best)", full, trace)
+            if trace:
+                scores = diag.get("scores") or []
+                if scores:
+                    print(
+                        f"[plan] Skeleton generation completed; selected score={scores[0][0]:.4f} "
+                        f"sorries={scores[0][1]} subgoals={scores[0][2]}",
+                        flush=True,
+                    )
+                else:
+                    print("[plan] Skeleton generation completed", flush=True)
+                _print_selected_skeleton("SELECTED SKELETON / OUTLINE (diverse_best)", full, trace)
 
         # Fix 2: explicitly split time between skeleton generation and repair
         # Reset the clock reference for repair/fill stage
@@ -1138,7 +1162,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                                 goal_text, isabelle=isa, session_id=session, model=model, temps=temps, k=k,
                                 force_outline=True, priors_path=priors_path, context_hints=context_hints,
                                 lib_templates=lib_templates, alpha=alpha, beta=beta, gamma=gamma,
-                                hintlex_path=hintlex_path, hintlex_top=hintlex_top,
+                                hintlex_path=hintlex_path, hintlex_top=hintlex_top, trace=trace,
                             )
                             full = best.text
                             repair_progress.clear()

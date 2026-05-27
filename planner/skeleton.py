@@ -230,11 +230,14 @@ def _generate_simple(
     num_predict: Optional[int] = None,
     timeout_s: Optional[int] = None,
 ) -> str:
-    
-    print(f"\n{'='*60}")
-    print(f"[LLM skeleton] model={model}  temp={temperature}")
-    print(f"[LLM skeleton] PROMPT (from skeleton.py):\n{prompt}")
-    print(f"\n{'='*60}")
+
+    display_model = model or DEFAULT_MODEL
+    dump = os.getenv("LLM_DUMP", "").strip().lower() in ("1", "true", "yes", "on")
+    if dump:
+        print(f"\n{'='*60}", flush=True)
+        print(f"[LLM skeleton] model={display_model}  temp={temperature}  timeout={timeout_s}", flush=True)
+        print(f"[LLM skeleton] PROMPT (from skeleton.py):\n{prompt}", flush=True)
+        print(f"{'='*60}\n", flush=True)
 
     if model:
         if model.startswith("hf:"):
@@ -270,10 +273,10 @@ def _generate_simple(
             num_predict=num_predict, timeout_s=timeout_s
         )
 
-    print(f"\n{'='*60}")
-    print(f"[LLM skeleton] model={model}  temp={temperature}")
-    print(f"[LLM skeleton] RAW RESPONSE (from skeleton.py):\n{raw}")
-    print(f"{'='*60}\n")
+    if dump:
+        print(f"[LLM skeleton] model={display_model}  temp={temperature}", flush=True)
+        print(f"[LLM skeleton] RAW RESPONSE (from skeleton.py):\n{raw}", flush=True)
+        print(f"{'='*60}\n", flush=True)
 
     return raw
 
@@ -708,11 +711,17 @@ def propose_isar_skeleton(
     *,
     force_outline: bool = False,
     hints: Optional[List[str]] = None,
+    trace: bool = False,
 ) -> Skeleton:
     # Inject tiny hint list when available (keeps default behavior if None/empty)
     prompt = SKELETON_PROMPT.format(goal=goal)
     if hints:
         prompt += "\nHINTS: Prefer using " + ", ".join(sorted(set(hints))) + " if applicable.\n"
+    if trace:
+        print(
+            f"[llm skeleton] skeleton candidate 1/1: temp={temp} timeout={OLLAMA_TIMEOUT_S}s",
+            flush=True,
+        )
     raw = _generate_simple(
         prompt=prompt,
         model=model or DEFAULT_MODEL,
@@ -734,6 +743,7 @@ def propose_isar_skeletons(
     force_outline: bool = False,
     hints: Optional[List[str]] = None,
     timeout_s: Optional[int] = None,    # Fix 2
+    trace: bool = False,
 ) -> List[Skeleton]:
     temps_list = list(temps)[:k] if k else list(temps)
     n_calls = len(temps_list)
@@ -745,10 +755,23 @@ def propose_isar_skeletons(
 
     if not is_api_model or n_calls == 1:
         # Original sequential path — safe for Ollama
-        per_call_timeout = max(20, int(timeout_s * 0.8 / max(1, n_calls))
-                               if timeout_s else OLLAMA_TIMEOUT_S)
+        deadline = (time.monotonic() + float(timeout_s)) if timeout_s else None
         seen, out = set(), []
-        for t in temps_list:
+        for i, t in enumerate(temps_list):
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 1.0:
+                    break
+                calls_left = max(1, n_calls - i)
+                per_call_timeout = max(1, int(remaining / calls_left))
+            else:
+                per_call_timeout = OLLAMA_TIMEOUT_S
+            if trace:
+                print(
+                    f"[llm skeleton] skeleton candidate {i + 1}/{n_calls}: "
+                    f"temp={t} timeout={per_call_timeout}s",
+                    flush=True,
+                )
             prompt = SKELETON_PROMPT.format(goal=goal)
             if hints:
                 prompt += "\nHINTS: Prefer using " + \
@@ -758,7 +781,7 @@ def propose_isar_skeletons(
                                        temperature=float(t), timeout_s=per_call_timeout)
             except Exception as e:
                 #NOTE trace not passed if trace:
-                print(f"[skeleton] call at temp={t} failed: {type(e).__name__}: {e}")
+                print(f"[skeleton] call at temp={t} failed: {type(e).__name__}: {e}", flush=True)
                 continue
             # #Fix: The inter-request sleep for Gemini is already applied inside
             # #Fix: _generate_simple after every gemini: call, so no extra sleep needed here.
@@ -771,17 +794,25 @@ def propose_isar_skeletons(
                 out.append(sk)
             if k is not None and len(out) >= int(k):
                 break
-        return out or [propose_isar_skeleton(goal, model=model, temp=0.35,
-                                             force_outline=force_outline, hints=hints)]
+        if out:
+            return out
+        fallback = f'lemma "{goal}"\n  sorry\n'
+        return [Skeleton(text=fallback, holes=find_sorry_spans(fallback))]
 
     # API parallel path
     # Each worker gets the full timeout — they run concurrently so wall-clock ~= one call
-    per_call_timeout = max(20, int((timeout_s or OLLAMA_TIMEOUT_S) * 0.85))
+    per_call_timeout = max(1, int((timeout_s or OLLAMA_TIMEOUT_S) * 0.85))
     results = {}
     errors = {}
     lock = threading.Lock()
 
-    def _one_call(t):
+    def _one_call(i, t):
+        if trace:
+            print(
+                f"[llm skeleton] skeleton candidate {i + 1}/{n_calls}: "
+                f"temp={t} timeout={per_call_timeout}s",
+                flush=True,
+            )
         prompt = SKELETON_PROMPT.format(goal=goal)
         if hints:
             prompt += "\nHINTS: Prefer using " + \
@@ -799,7 +830,7 @@ def propose_isar_skeletons(
                 errors[t] = f"{type(e).__name__}: {e}"
 
     with ThreadPoolExecutor(max_workers=n_calls) as ex:
-        futures = [ex.submit(_one_call, t) for t in temps_list]
+        futures = [ex.submit(_one_call, i, t) for i, t in enumerate(temps_list)]
         # Wait with hard deadline — don't hang forever
         wait(futures, timeout=per_call_timeout + 3)
         # Futures still running after timeout are abandoned (can't kill, but
@@ -807,7 +838,7 @@ def propose_isar_skeletons(
 
     # Log any failures explicitly — addresses the hidden failure concern
     for t, err in errors.items():
-        print(f"[skeleton] temp={t} failed: {err}")
+        print(f"[skeleton] temp={t} failed: {err}", flush=True)
 
     # Restore deterministic order by temperature
     seen, out = set(), []
@@ -818,8 +849,10 @@ def propose_isar_skeletons(
                 seen.add(sk.text.strip())
                 out.append(sk)
 
-    return out or [propose_isar_skeleton(goal, model=model, temp=0.35,
-                                         force_outline=force_outline, hints=hints)]
+    if out:
+        return out
+    fallback = f'lemma "{goal}"\n  sorry\n'
+    return [Skeleton(text=fallback, holes=find_sorry_spans(fallback))]
 
 
 def _lib_templates_for_goal(goal: str) -> List[Skeleton]:
@@ -897,6 +930,7 @@ def propose_isar_skeleton_diverse_best(
     hintlex_path: Optional[str] = None,
     hintlex_top: int = 8,
     timeout_s: Optional[int] = None,    # Fix 2
+    trace: bool = False,
 ) -> Tuple[Skeleton, Dict[str, Any]]:
     """
     Generate K outlines, optionally inject context & hintlex hints, run one-shot sketch checks,
@@ -916,7 +950,7 @@ def propose_isar_skeleton_diverse_best(
     # Outline candidates (LLM) + optional library templates
     cands = propose_isar_skeletons(goal, model=model, temps=temps, k=k,
                                    force_outline=force_outline, hints=rec_hints,
-                                   timeout_s=timeout_s)    # Fix 2
+                                   timeout_s=timeout_s, trace=trace)    # Fix 2
     if lib_templates:
         cands = _lib_templates_for_goal(goal) + cands
 
