@@ -234,10 +234,9 @@ def _generate_simple(
     display_model = model or DEFAULT_MODEL
     dump = os.getenv("LLM_DUMP", "").strip().lower() in ("1", "true", "yes", "on")
     if dump:
-        print(f"\n{'='*60}", flush=True)
-        print(f"[Skeleton] model={display_model}  temp={temperature}  timeout={timeout_s}", flush=True)
-        print(f"[Skeleton] PROMPT:\n{prompt}", flush=True)
-        print(f"{'='*60}\n", flush=True)
+        print(f"{'='*60}", flush=True)
+        print(f"[Skeleton] LLM Prompt:\n{prompt.rstrip()}", flush=True)
+        print(f"{'-'*60}", flush=True)
 
     if model:
         if model.startswith("hf:"):
@@ -274,9 +273,9 @@ def _generate_simple(
         )
 
     if dump:
-        print(f"[Skeleton] model={display_model}  temp={temperature}", flush=True)
-        print(f"[Skeleton] RAW RESPONSE:\n{raw}", flush=True)
-        print(f"{'='*60}\n", flush=True)
+        print(f"[Skeleton] model={display_model}", flush=True)
+        print(f"[Skeleton] LLM Output:\n{raw}", flush=True)
+        print(f"{'='*60}", flush=True)
 
     return raw
 
@@ -780,9 +779,14 @@ def propose_isar_skeletons(
                 raw = _generate_simple(prompt=prompt, model=model or DEFAULT_MODEL,
                                        temperature=float(t), timeout_s=per_call_timeout)
             except Exception as e:
-                #NOTE trace not passed if trace:
-                print(f"[Skeleton] call at temp={t} failed: {type(e).__name__}: {e}", flush=True)
+                if trace:
+                    print(f"[Skeleton] call at temp={t} failed: {type(e).__name__}: {e}", flush=True)
                 continue
+            if trace:
+                print(
+                    f"[Skeleton] candidate {i + 1}/{n_calls}: LLM returned {len(raw or '')} chars; sanitizing...",
+                    flush=True,
+                )
             # #Fix: The inter-request sleep for Gemini is already applied inside
             # #Fix: _generate_simple after every gemini: call, so no extra sleep needed here.
             cleaned = _sanitize_outline(raw, goal=goal,
@@ -792,11 +796,23 @@ def propose_isar_skeletons(
             if sk.text.strip() not in seen:
                 seen.add(sk.text.strip())
                 out.append(sk)
+                if trace:
+                    print(
+                        f"[Skeleton] candidate {i + 1}/{n_calls}: kept outline "
+                        f"({len(sk.text)} chars, {len(sk.holes)} sorry holes)",
+                        flush=True,
+                    )
+            elif trace:
+                print(f"[Skeleton] candidate {i + 1}/{n_calls}: duplicate outline skipped", flush=True)
             if k is not None and len(out) >= int(k):
                 break
         if out:
+            if trace:
+                print(f"[Skeleton] collected {len(out)} unique skeleton candidate(s)", flush=True)
             return out
         fallback = f'lemma "{goal}"\n  sorry\n'
+        if trace:
+            print("[Skeleton] no usable skeleton candidates; using minimal sorry outline", flush=True)
         return [Skeleton(text=fallback, holes=find_sorry_spans(fallback))]
 
     # API parallel path
@@ -959,7 +975,15 @@ def propose_isar_skeleton_diverse_best(
 
     scored: List[Tuple[float, int, int]] = []  # (score, n_subgoals, idx)
     for i, sk in enumerate(cands):
+        if trace:
+            print(
+                f"[Skeleton] scoring candidate {i + 1}/{len(cands)} "
+                f"({len(sk.text)} chars, {len(sk.holes)} sorry holes)...",
+                flush=True,
+            )
         n = _quick_sketch_score(isabelle, session_id, sk.text)
+        if trace:
+            print(f"[Skeleton] scored candidate {i + 1}/{len(cands)}: subgoals={n}", flush=True)
         sorry_count = len(sk.holes)    # Fix: added sorry-count tiebreaker in scoring
         pat_pen = _pattern_penalty(goal, sk.text, rules)
         hint_b = _hint_bonus_from_outline(sk.text, rec_hints)
@@ -968,6 +992,8 @@ def propose_isar_skeleton_diverse_best(
 
     scored.sort(key=lambda x: (x[0], x[1], x[2], x[3]))    # Fix: added sorting by sorry_count
     best = cands[scored[0][3]]    # Fix: changed index from [2] to [3]
+    if trace:
+        print(f"[Skeleton] selected candidate {scored[0][3] + 1}/{len(cands)}", flush=True)
     diag = {
         "scores": scored,
         "num_candidates": len(cands),

@@ -860,10 +860,10 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     f"sorries={sorry_count} subgoals={subgoals}",
                     flush=True,
                 )
-                print("[Driver] SELECTED SKELETON / OUTLINE")
                 print("-" * 100)
+                print("[Driver] Selected Skeleton:", flush=True)
                 print(full)
-                print("=" * 100 + "\n", flush=True)
+                print("-" * 100 + "\n", flush=True)
 
         # Fix 2: explicitly split time between skeleton generation and repair
         # Reset the clock reference for repair/fill stage
@@ -902,17 +902,36 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
 
             # Verification failed — surface WHY (the Isabelle rejection) so the trace
             # shows the actual error rather than silently moving on.
+            verify_errs: List[str] = []
             if trace:
                 try:
-                    _, errs = _quick_state_and_errors(isa, session, full)
-                    if errs:
+                    _, verify_errs = _quick_state_and_errors(isa, session, full)
+                    if verify_errs:
                         print("[Driver] Complete proof FAILED verification. Isabelle reported:")
-                        for m in errs[:5]:
+                        for m in verify_errs[:5]:
                             print(f"        - {str(m).strip()}")
                     else:
                         print("[Driver] Complete proof FAILED verification (no specific error text captured).")
                 except Exception as ex:
                     print(f"[Driver] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}")
+            else:
+                try:
+                    _, verify_errs = _quick_state_and_errors(isa, session, full)
+                except Exception:
+                    verify_errs = []
+
+            if any("isabelle_run_timeout" in str(e) for e in verify_errs):
+                if trace:
+                    print("[Driver] Verification timed out; restarting Isabelle and retrying once...")
+                _restart_isabelle("complete proof verification timeout")
+                try:
+                    if _verify_full_proof(isa, session, full):
+                        if trace:
+                            print("[Driver] Complete proof verified after Isabelle restart. Done.")
+                        return PlanAndFillResult(True, full, [], [])
+                except (TimeoutError, _FuturesTimeout, ValueError) as ex:
+                    if trace:
+                        print(f"[Driver] Retry verification raised {type(ex).__name__}: {ex}")
 
             if repairs and left_s() > 3.0:    # Fix to match thresholds (changed from >6.0)
                 if trace:
@@ -927,7 +946,14 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             elif trace:
                 print("[Driver] Skipping repair (disabled or insufficient time remaining).")
 
+            if left_s() <= 3.0:
+                if trace:
+                    print("[Driver] Not localising failed proof into a sorry; insufficient time remaining.")
+                return PlanAndFillResult(False, full, [], [0])
+
             # Attempt to localise failure and fill with a sorry
+            if trace:
+                print("[Driver] Localising failed complete proof into a sorry...")
             full2, opened = _open_minimal_sorries(isa, session, full)
             full = full2 if opened else full
             if not opened:
