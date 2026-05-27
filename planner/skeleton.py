@@ -235,8 +235,8 @@ def _generate_simple(
     dump = os.getenv("LLM_DUMP", "").strip().lower() in ("1", "true", "yes", "on")
     if dump:
         print(f"\n{'='*60}", flush=True)
-        print(f"[LLM skeleton] model={display_model}  temp={temperature}  timeout={timeout_s}", flush=True)
-        print(f"[LLM skeleton] PROMPT (from skeleton.py):\n{prompt}", flush=True)
+        print(f"[Skeleton] model={display_model}  temp={temperature}  timeout={timeout_s}", flush=True)
+        print(f"[Skeleton] PROMPT:\n{prompt}", flush=True)
         print(f"{'='*60}\n", flush=True)
 
     if model:
@@ -274,8 +274,8 @@ def _generate_simple(
         )
 
     if dump:
-        print(f"[LLM skeleton] model={display_model}  temp={temperature}", flush=True)
-        print(f"[LLM skeleton] RAW RESPONSE (from skeleton.py):\n{raw}", flush=True)
+        print(f"[Skeleton] model={display_model}  temp={temperature}", flush=True)
+        print(f"[Skeleton] RAW RESPONSE:\n{raw}", flush=True)
         print(f"{'='*60}\n", flush=True)
 
     return raw
@@ -719,7 +719,7 @@ def propose_isar_skeleton(
         prompt += "\nHINTS: Prefer using " + ", ".join(sorted(set(hints))) + " if applicable.\n"
     if trace:
         print(
-            f"[llm skeleton] skeleton candidate 1/1: temp={temp} timeout={OLLAMA_TIMEOUT_S}s",
+            f"[Skeleton] skeleton candidate 1/1: temp={temp} timeout={OLLAMA_TIMEOUT_S}s",
             flush=True,
         )
     raw = _generate_simple(
@@ -768,7 +768,7 @@ def propose_isar_skeletons(
                 per_call_timeout = OLLAMA_TIMEOUT_S
             if trace:
                 print(
-                    f"[llm skeleton] skeleton candidate {i + 1}/{n_calls}: "
+                    f"[Skeleton] skeleton candidate {i + 1}/{n_calls}: "
                     f"temp={t} timeout={per_call_timeout}s",
                     flush=True,
                 )
@@ -781,7 +781,7 @@ def propose_isar_skeletons(
                                        temperature=float(t), timeout_s=per_call_timeout)
             except Exception as e:
                 #NOTE trace not passed if trace:
-                print(f"[skeleton] call at temp={t} failed: {type(e).__name__}: {e}", flush=True)
+                print(f"[Skeleton] call at temp={t} failed: {type(e).__name__}: {e}", flush=True)
                 continue
             # #Fix: The inter-request sleep for Gemini is already applied inside
             # #Fix: _generate_simple after every gemini: call, so no extra sleep needed here.
@@ -809,7 +809,7 @@ def propose_isar_skeletons(
     def _one_call(i, t):
         if trace:
             print(
-                f"[llm skeleton] skeleton candidate {i + 1}/{n_calls}: "
+                f"[Skeleton] skeleton candidate {i + 1}/{n_calls}: "
                 f"temp={t} timeout={per_call_timeout}s",
                 flush=True,
             )
@@ -838,7 +838,7 @@ def propose_isar_skeletons(
 
     # Log any failures explicitly — addresses the hidden failure concern
     for t, err in errors.items():
-        print(f"[skeleton] temp={t} failed: {err}", flush=True)
+        print(f"[Skeleton] temp={t} failed: {err}", flush=True)
 
     # Restore deterministic order by temperature
     seen, out = set(), []
