@@ -161,11 +161,13 @@ _gemini_last_call_time: float = 0.0
 def _generate_simple(prompt: str, model: Optional[str] = None, *, timeout_s: Optional[int] = None) -> str:
     m = model or DEFAULT_MODEL
     timeout = timeout_s or OLLAMA_TIMEOUT_S
+    display_model = m
+    dump = os.getenv("LLM_DUMP", "").strip().lower() in ("1", "true", "yes", "on")
 
-    print(f"\n{'='*60}")
-    print(f"[LLM repair] model={m}")
-    print(f"[LLM skeleton] PROMPT (from repair.py):\n{prompt}")
-    print(f"\n{'='*60}")
+    if dump:
+        print(f"{'='*60}", flush=True)
+        print(f"[Repair] LLM Prompt:\n{prompt.rstrip()}", flush=True)
+        print(f"{'-'*60}", flush=True)
     
     if m.startswith("hf:"):
         raw = _hf_generate(prompt, m[3:], timeout)
@@ -186,11 +188,10 @@ def _generate_simple(prompt: str, model: Optional[str] = None, *, timeout_s: Opt
     else:
         raw = _ollama_generate(prompt, m, timeout)
 
-    # [FIX] some tracing    
-    print(f"{'='*60}\n")
-    print(f"[LLM repair] model={m}")
-    print(f"[LLM repair] RAW RESPONSE (from repair.py):\n{raw}")
-    print(f"{'='*60}\n")
+    if dump:
+        print(f"[Repair] model={display_model}", flush=True)
+        print(f"[Repair] LLM Output:\n{raw}", flush=True)
+        print(f"{'='*60}", flush=True)
 
     return raw
 
