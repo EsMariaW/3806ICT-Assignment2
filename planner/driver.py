@@ -44,15 +44,6 @@ class PlanAndFillResult:
     # goal statement itself fails to parse in Isabelle (not a prover failure).
     status: Optional[str] = None
 
-def _print_selected_skeleton(label: str, full: str, trace: bool) -> None:
-    if not trace:
-        return
-    print("\n" + "=" * 100)
-    print(f"[driver] {label}")
-    print("-" * 100)
-    print(full)
-    print("=" * 100 + "\n", flush=True)
-
 # ============================================================================
 # Hole Filling
 # ============================================================================
@@ -671,7 +662,7 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
             return
         restart_count += 1
         if trace:
-            msg = f"[planner] Restarting Isabelle (#{restart_count}) due to {reason}"
+            msg = f"[Driver] Restarting Isabelle (#{restart_count}) due to {reason}"
             if ex is not None:
                 msg += f": {type(ex).__name__}: {ex}"
             print(msg)
@@ -733,7 +724,7 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
             # If regex fixes weren't enough, try LLM syntax fix
             if not ok and model and left_s() > 10.0:
                 if trace:
-                    print(f"[plan] Goal does not parse after regex fixes ({detail}); "
+                    print(f"[Driver] Goal does not parse after regex fixes ({detail}); "
                           f"attempting LLM syntax fix...")
                 try:
                     from planner.skeleton import _generate_simple
@@ -767,27 +758,27 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                             ok2, detail2 = _goal_parses(isa, session, fixed_goal)
                             if ok2:
                                 if trace:
-                                    print(f"[plan] LLM syntax fix succeeded: {fixed_goal!r}")
+                                    print(f"[Driver] LLM syntax fix succeeded: {fixed_goal!r}")
                                 goal = fixed_goal  # accept the fix, continue normally
                                 ok = True
                             else:
                                 if trace:
-                                    print(f"[plan] LLM syntax fix did not parse either "
+                                    print(f"[Driver] LLM syntax fix did not parse either "
                                         f"({detail2}); discarding, flagging as MALFORMED.")
                         else:
                             if trace:
-                                print(f"[plan] LLM syntax fix rejected — changed logical content; discarding.")
+                                print(f"[Driver] LLM syntax fix rejected — changed logical content; discarding.")
                 except Exception as e:
                     if trace:
-                        print(f"[plan] LLM syntax fix attempt failed: {type(e).__name__}: {e}")
+                        print(f"[Driver] LLM syntax fix attempt failed: {type(e).__name__}: {e}")
 
             if not ok:
                 if trace:
-                    print(f"[plan] Goal statement does NOT parse in Isabelle ({detail}); "
+                    print(f"[Driver] Goal statement does NOT parse in Isabelle ({detail}); "
                           f"flagging as MALFORMED (not a prover failure).")
                 return PlanAndFillResult(False, f'lemma "{goal}"\n  (* MALFORMED: statement failed to parse *)\n', [], [], status="malformed")
             elif trace:
-                print("[plan] Goal statement parses; proceeding.", flush=True)
+                print("[Driver] Goal statement parses; proceeding.", flush=True)
 
         # NOTE 1.3: Try one-line finishers on goal
         # -------------------------------------------------------------------
@@ -811,23 +802,24 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             fp_proof = _try_direct_finishers(isa, session, goal, left_s, trace)
             if fp_proof is not None:
                 if trace:
-                    print("[fastpath] Closed by a direct finisher; skipping skeleton generation.")
+                    print("[Driver] Fastpath Closed by a direct finisher; skipping skeleton generation.")
                 return PlanAndFillResult(True, fp_proof, [], [])
             elif trace:
-                print("[fastpath] No direct finisher closed the goal; proceeding to skeleton.", flush=True)
+                print("[Driver] Fastpath failed; no direct finisher closed the goal; proceeding to skeleton.", flush=True)
 
         # Generate outline
         # NOTE: 1.4 Get best proof outline from LLM
         if legacy_single_outline: # Legacy only makes one skeleton
             if trace:
-                print("[plan] Generating skeleton with legacy single-outline method...", flush=True)
+                print("[Driver] Generating skeleton with legacy single-outline method...", flush=True)
             full = propose_isar_skeleton(
                 goal, model=model, temp=0.35,
                 force_outline=(mode == "outline"), trace=trace
             ).text
             if trace:
-                print("[plan] Skeleton generation (legacy single outline) completed", flush=True)
-                _print_selected_skeleton("SELECTED SKELETON / OUTLINE (legacy_single_outline)", full, trace)
+                print("[Driver] Skeleton generation (legacy single outline) completed", flush=True)
+                print(full)
+                print("=" * 100 + "\n", flush=True)
 
             # Fix 2: repair timer
             _repair_start = time.monotonic()
@@ -847,7 +839,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             k = int(outline_k) if outline_k is not None else 3
             if trace:
                 print(
-                    f"[plan] Generating {k} skeleton candidates with temps {temps} "
+                    f"[Driver] Generating {k} skeleton candidates with temps {temps} "
                     f"(budget={int(_skeleton_budget_s)}s)...",
                     flush=True,
                 )
@@ -862,16 +854,16 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             )
             full = best.text
             if trace:
-                scores = diag.get("scores") or []
-                if scores:
-                    print(
-                        f"[plan] Skeleton generation completed; selected score={scores[0][0]:.4f} "
-                        f"sorries={scores[0][1]} subgoals={scores[0][2]}",
-                        flush=True,
-                    )
-                else:
-                    print("[plan] Skeleton generation completed", flush=True)
-                _print_selected_skeleton("SELECTED SKELETON / OUTLINE (diverse_best)", full, trace)
+                score, sorry_count, subgoals, _ = diag["scores"][0]
+                print(
+                    f"[Driver] Skeleton generation completed; selected score={score:.4f} "
+                    f"sorries={sorry_count} subgoals={subgoals}",
+                    flush=True,
+                )
+                print("[Driver] SELECTED SKELETON / OUTLINE")
+                print("-" * 100)
+                print(full)
+                print("=" * 100 + "\n", flush=True)
 
         # Fix 2: explicitly split time between skeleton generation and repair
         # Reset the clock reference for repair/fill stage
@@ -894,18 +886,18 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
         # NOTE: 1.5 Run Isabelle on current proof outline if no sorries
         if not spans:
             if trace:
-                print("[plan] Skeleton came back with no 'sorry' holes; verifying as a complete proof...")
+                print("[Driver] Skeleton came back with no 'sorry' holes; verifying as a complete proof...")
             verified = False
             try:
                 verified = _verify_full_proof(isa, session, full)
             except (TimeoutError, _FuturesTimeout, ValueError) as ex:
                 if trace:
-                    print(f"[plan] Full-proof verification raised {type(ex).__name__}: {ex}")
+                    print(f"[Driver] Full-proof verification raised {type(ex).__name__}: {ex}")
                 _restart_isabelle("verify_full_proof", ex)
 
             if verified:
                 if trace:
-                    print("[plan] Complete proof verified on first try. Done.")
+                    print("[Driver] Complete proof verified on first try. Done.")
                 return PlanAndFillResult(True, full, [], [])
 
             # Verification failed — surface WHY (the Isabelle rejection) so the trace
@@ -914,36 +906,36 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 try:
                     _, errs = _quick_state_and_errors(isa, session, full)
                     if errs:
-                        print("[plan] Complete proof FAILED verification. Isabelle reported:")
+                        print("[Driver] Complete proof FAILED verification. Isabelle reported:")
                         for m in errs[:5]:
                             print(f"        - {str(m).strip()}")
                     else:
-                        print("[plan] Complete proof FAILED verification (no specific error text captured).")
+                        print("[Driver] Complete proof FAILED verification (no specific error text captured).")
                 except Exception as ex:
-                    print(f"[plan] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}")
+                    print(f"[Driver] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}")
 
             if repairs and left_s() > 3.0:    # Fix to match thresholds (changed from >6.0)
                 if trace:
-                    print("[plan] Engaging top-down repair on the failed complete proof...")
+                    print("[Driver] Engaging top-down repair on the failed complete proof...")
                 full, ok = _repair_failed_proof_topdown(isa, session, full, goal, model, left_s, max_repairs_per_hole, trace)
                 if ok:
                     if trace:
-                        print("[plan] Top-down repair produced a verified proof. Done.")
+                        print("[Driver] Top-down repair produced a verified proof. Done.")
                     return PlanAndFillResult(True, full, [], [])
                 if trace:
-                    print("[plan] Top-down repair did not yield a verified proof.")
+                    print("[Driver] Top-down repair did not yield a verified proof.")
             elif trace:
-                print("[plan] Skipping repair (disabled or insufficient time remaining).")
+                print("[Driver] Skipping repair (disabled or insufficient time remaining).")
 
             # Attempt to localise failure and fill with a sorry
             full2, opened = _open_minimal_sorries(isa, session, full)
             full = full2 if opened else full
             if not opened:
                 if trace:
-                    print("[plan] Could not localise the failure into a 'sorry'; returning unverified proof as FAILED.")
+                    print("[Driver] Could not localise the failure into a 'sorry'; returning unverified proof as FAILED.")
                 return PlanAndFillResult(False, full, [], [0])
             elif trace:
-                print("[plan] Localised the failing step into a 'sorry'; entering hole-fill loop.")
+                print("[Driver] Localised the failing step into a 'sorry'; entering hole-fill loop.")
 
         # Get the lemma line (Line starting with lemma that contains the goal)
         lemma_line = _first_lemma_line(full)
