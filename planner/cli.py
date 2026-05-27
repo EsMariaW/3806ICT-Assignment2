@@ -265,10 +265,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     # ---- Single-goal mode (unchanged behaviour) ----
     res = _run_one(goal, trace=args.trace)
     if args.trace and ("--verbose" in (argv or sys.argv) or "--repair-trace" in (argv or sys.argv)):
-        print("[planner] Note: --verbose/--repair-trace are deprecated; use --trace.", flush=True)
+        print("[Planner CLI] Note: --verbose/--repair-trace are deprecated; use --trace.", flush=True)
     print(res.outline, end="" if res.outline.endswith("\n") else "\n")
     if not res.success:
-        print("[planner] NOTE: this proof did NOT verify (returned as a failed attempt).", file=sys.stderr)
+        print("[Planner CLI] NOTE: this proof did NOT verify (returned as a failed attempt).", file=sys.stderr)
     return 0 if res.success else 1
 
 

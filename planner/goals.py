@@ -27,11 +27,16 @@ def _run_theory_with_timeout(isabelle, session: str, thy: List[str], *, timeout_
     return resps
 
 
-def _verify_full_proof(isabelle, session: str, text: str) -> bool:
-    """Return True iff the full Isar text checks under _ISA_VERIFY_TIMEOUT_S."""
+def _verify_full_proof(isabelle, session: str, text: str, *, timeout_s: Optional[int] = None) -> bool:
+    """Return True iff the full Isar text checks within the requested timeout."""
     try:
         thy = build_theory(text.splitlines(), add_print_state=False, end_with=None)
-        result = _run_theory_with_timeout(isabelle, session, thy, timeout_s=_ISA_VERIFY_TIMEOUT_S)
+        result = _run_theory_with_timeout(
+            isabelle,
+            session,
+            thy,
+            timeout_s=timeout_s if timeout_s is not None else _ISA_VERIFY_TIMEOUT_S,
+        )
         ok, _ = finished_ok(result)
         return ok
     except Exception:

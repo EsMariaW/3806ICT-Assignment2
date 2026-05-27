@@ -67,7 +67,7 @@ def detect_backend_for_model(model: str) -> str:
 
 def _join_prompts(system_prompt: str, user_prompt: str) -> str:
     """Unify prompt formatting so all backends see the same text."""
-    return f"<<SYS>>\n{system_prompt}\n<</SYS>>\n\n{user_prompt}"
+    return f"\n{system_prompt}\n\n\n{user_prompt}"
 
 
 # ---------------------------

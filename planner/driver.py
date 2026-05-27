@@ -885,15 +885,32 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
         # Handle complete proofs
         # NOTE: 1.5 Run Isabelle on current proof outline if no sorries
         if not spans:
+            verify_timeout = max(1, int(min(_ISA_VERIFY_TIMEOUT_S, left_s())))
             if trace:
-                print("[Driver] Skeleton came back with no 'sorry' holes; verifying as a complete proof...")
+                print(
+                    f"[Driver] Skeleton came back with no 'sorry' holes; verifying as a complete proof "
+                    f"(timeout={verify_timeout}s, remaining={left_s():.1f}s)...",
+                    flush=True,
+                )
             verified = False
+            verify_t0 = time.monotonic()
             try:
-                verified = _verify_full_proof(isa, session, full)
+                verified = _verify_full_proof(isa, session, full, timeout_s=verify_timeout)
             except (TimeoutError, _FuturesTimeout, ValueError) as ex:
                 if trace:
-                    print(f"[Driver] Full-proof verification raised {type(ex).__name__}: {ex}")
+                    print(
+                        f"[Driver] Full-proof verification raised {type(ex).__name__}: {ex} "
+                        f"after {time.monotonic() - verify_t0:.1f}s",
+                        flush=True,
+                    )
                 _restart_isabelle("verify_full_proof", ex)
+            else:
+                if trace:
+                    print(
+                        f"[Driver] Full-proof verification returned {verified} "
+                        f"after {time.monotonic() - verify_t0:.1f}s",
+                        flush=True,
+                    )
 
             if verified:
                 if trace:
@@ -903,9 +920,10 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             # Verification failed — surface WHY (the Isabelle rejection) so the trace
             # shows the actual error rather than silently moving on.
             verify_errs: List[str] = []
+            err_timeout = max(1, int(min(15, left_s())))
             if trace:
                 try:
-                    _, verify_errs = _quick_state_and_errors(isa, session, full)
+                    _, verify_errs = _quick_state_and_errors(isa, session, full, timeout_s=err_timeout)
                     if verify_errs:
                         print("[Driver] Complete proof FAILED verification. Isabelle reported:")
                         for m in verify_errs[:5]:
@@ -916,7 +934,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     print(f"[Driver] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}")
             else:
                 try:
-                    _, verify_errs = _quick_state_and_errors(isa, session, full)
+                    _, verify_errs = _quick_state_and_errors(isa, session, full, timeout_s=err_timeout)
                 except Exception:
                     verify_errs = []
 
@@ -924,14 +942,28 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 if trace:
                     print("[Driver] Verification timed out; restarting Isabelle and retrying once...")
                 _restart_isabelle("complete proof verification timeout")
+                retry_timeout = max(1, int(min(_ISA_VERIFY_TIMEOUT_S, left_s())))
+                retry_t0 = time.monotonic()
                 try:
-                    if _verify_full_proof(isa, session, full):
+                    retry_verified = _verify_full_proof(isa, session, full, timeout_s=retry_timeout)
+                    if trace:
+                        print(
+                            f"[Driver] Retry verification returned {retry_verified} "
+                            f"after {time.monotonic() - retry_t0:.1f}s "
+                            f"(timeout={retry_timeout}s)",
+                            flush=True,
+                        )
+                    if retry_verified:
                         if trace:
                             print("[Driver] Complete proof verified after Isabelle restart. Done.")
                         return PlanAndFillResult(True, full, [], [])
                 except (TimeoutError, _FuturesTimeout, ValueError) as ex:
                     if trace:
-                        print(f"[Driver] Retry verification raised {type(ex).__name__}: {ex}")
+                        print(
+                            f"[Driver] Retry verification raised {type(ex).__name__}: {ex} "
+                            f"after {time.monotonic() - retry_t0:.1f}s",
+                            flush=True,
+                        )
 
             if repairs and left_s() > 3.0:    # Fix to match thresholds (changed from >6.0)
                 if trace:
