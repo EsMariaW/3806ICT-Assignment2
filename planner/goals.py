@@ -1,10 +1,9 @@
 import json
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 from typing import Iterable, List, Optional, Tuple
 
-from prover.isabelle_api import build_theory, last_print_state_block, run_theory, finished_ok
+from prover.isabelle_api import build_theory, last_print_state_block, run_theory, finished_ok, last_call_timed_out
 
 # --- Constants ----------------------------------------------------------------
 _LLM_SUBGOAL_MARK = "[LLM_SUBGOAL]"
@@ -18,16 +17,14 @@ _ISA_VERIFY_TIMEOUT_S = int(os.getenv("ISABELLE_VERIFY_TIMEOUT_S", "30"))
 def _run_theory_with_timeout(isabelle, session: str, thy: List[str], *, timeout_s: Optional[int]) -> List:
     """Execute theory with a hard timeout, interrupting Isabelle if needed."""
     timeout_s = timeout_s or _ISA_VERIFY_TIMEOUT_S
-    with ThreadPoolExecutor(max_workers=1) as ex:
-        fut = ex.submit(run_theory, isabelle, session, thy)
+    resps = run_theory(isabelle, session, thy, timeout_s=timeout_s)
+    if last_call_timed_out():
         try:
-            return fut.result(timeout=timeout_s)
-        except _FuturesTimeout:
-            try:
-                getattr(isabelle, "interrupt", lambda: None)()
-            except Exception:
-                pass
-            raise TimeoutError("isabelle_run_timeout")
+            getattr(isabelle, "interrupt", lambda: None)()
+        except Exception:
+            pass
+        raise TimeoutError("isabelle_run_timeout")
+    return resps
 
 
 def _verify_full_proof(isabelle, session: str, text: str) -> bool:

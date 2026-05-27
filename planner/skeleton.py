@@ -560,19 +560,25 @@ def _sanitize_outline(text: str, goal: str, *, force_outline: bool) -> str:
         text += "\n"
     return text
 
-def _quick_sketch_score(isabelle, session_id: str, outline_text: str) -> int:
+def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout_s: int = 5) -> int:
     """
     Fix:
     Returns number of remaining subgoals.
         Returns 0 if the proof is already complete (no subgoals).
         Returns 9999 on error.
     """
+    # NOTE: this is deliberately bounded; generated complete proofs can make
+    # simplification run for a long time during scoring.
     try:
         thy = build_theory(outline_text.splitlines(), add_print_state=True, end_with="sorry")
-        resps = run_theory(isabelle, session_id, thy)
+        resps = run_theory(isabelle, session_id, thy, timeout_s=timeout_s)
+        if not resps:
+            return 9999
         block = last_print_state_block(resps) or ""
-        if "No subgoals" in block or block.strip()=="":    # if proof is completed
+        if "No subgoals" in block:
             return 0
+        if not block.strip():
+            return 9999
         n = parse_subgoals(block)
         return int(n) if isinstance(n, int) else 9999
     except Exception:
@@ -953,6 +959,8 @@ def propose_isar_skeleton_diverse_best(
     and return the best using composite score:
       score = alpha * subgoals + beta * pattern_penalty - gamma * hint_bonus
     """
+    deadline = (time.monotonic() + float(timeout_s)) if timeout_s is not None else None
+
     # Optional context hints from Isabelle state + hint lexicon
     rec_hints: List[str] = []
     if context_hints:
@@ -964,9 +972,18 @@ def propose_isar_skeleton_diverse_best(
     rec_hints = list(dict.fromkeys(rec_hints))[:12]  # stable de-dup + cap
 
     # Outline candidates (LLM) + optional library templates
-    cands = propose_isar_skeletons(goal, model=model, temps=temps, k=k,
-                                   force_outline=force_outline, hints=rec_hints,
-                                   timeout_s=timeout_s, trace=trace)    # Fix 2
+    llm_timeout_s = timeout_s
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        llm_timeout_s = max(1, int(remaining)) if remaining > 1.0 else 0
+
+    if llm_timeout_s == 0:
+        fallback = f'lemma "{goal}"\n  sorry\n'
+        cands = [Skeleton(text=fallback, holes=find_sorry_spans(fallback))]
+    else:
+        cands = propose_isar_skeletons(goal, model=model, temps=temps, k=k,
+                                       force_outline=force_outline, hints=rec_hints,
+                                       timeout_s=llm_timeout_s, trace=trace)    # Fix 2
     if lib_templates:
         cands = _lib_templates_for_goal(goal) + cands
 
@@ -975,13 +992,31 @@ def propose_isar_skeleton_diverse_best(
 
     scored: List[Tuple[float, int, int]] = []  # (score, n_subgoals, idx)
     for i, sk in enumerate(cands):
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            candidates_left = max(1, len(cands) - i)
+            score_timeout = max(1, int(remaining / candidates_left)) if remaining > 1.0 else 0
+        else:
+            score_timeout = 5
+
         if trace:
-            print(
-                f"[Skeleton] scoring candidate {i + 1}/{len(cands)} "
-                f"({len(sk.text)} chars, {len(sk.holes)} sorry holes)...",
-                flush=True,
-            )
-        n = _quick_sketch_score(isabelle, session_id, sk.text)
+            if score_timeout > 0:
+                print(
+                    f"[Skeleton] scoring candidate {i + 1}/{len(cands)} "
+                    f"({len(sk.text)} chars, {len(sk.holes)} sorry holes, timeout={score_timeout}s)...",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[Skeleton] scoring candidate {i + 1}/{len(cands)} skipped: no skeleton budget left",
+                    flush=True,
+                )
+
+        n = (
+            _quick_sketch_score(isabelle, session_id, sk.text, timeout_s=score_timeout)
+            if score_timeout > 0
+            else 9999
+        )
         if trace:
             print(f"[Skeleton] scored candidate {i + 1}/{len(cands)}: subgoals={n}", flush=True)
         sorry_count = len(sk.holes)    # Fix: added sorry-count tiebreaker in scoring
