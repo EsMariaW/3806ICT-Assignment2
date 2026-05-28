@@ -333,6 +333,7 @@ def _extract_print_state_from_responses(resps: List) -> str:
                         or text.strip().startswith('Undefined fact: "set_empty_conv"')
                     )
                     if not benign and os.getenv("PROVER_DEBUG", "").strip().lower() in ("1", "true", "yes", "on"):
+                        print(f"[DEBUG ERROR]: {text[:300]}")
 
     # print(f"[DEBUG] Total writeln messages: {debug_writeln_count}, LLM markers found: {debug_llm_found}")
     return (standard + "\n" + "\n".join(llm_lines)) if (llm_lines and standard) else (standard or "\n".join(llm_lines))
