@@ -630,7 +630,7 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                  priors_path: Optional[str] = None, context_hints: bool = False,
                  lib_templates: bool = False, alpha: float = 1.0, beta: float = 0.5,
                  gamma: float = 0.2, hintlex_path: Optional[str] = None,
-                 hintlex_top: int = 8) -> PlanAndFillResult:
+                 hintlex_top: int = 8, dummy_outline=None,) -> PlanAndFillResult:
     """Plan and fill holes in Isar proofs.
 
     Notes:
@@ -807,9 +807,36 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             elif trace:
                 print("[Driver] Fastpath failed; no direct finisher closed the goal; proceeding to skeleton.", flush=True)
 
+        # --- DUMMY OUTLINE SHORTCUT ---
+        if dummy_outline:
+            if os.path.exists(dummy_outline):
+                with open(dummy_outline, "r", encoding="utf-8") as f:
+                    _dummy_text = f.read()
+            else:
+                _dummy_text = dummy_outline
+            from planner.skeleton import _sanitize_outline, _sanitize_outline
+            import planner.skeleton as _skel_mod
+            _dummy_cleaned = _sanitize_outline(_dummy_text, goal=goal, force_outline=False)
+            _dummy_sk = Skeleton(text=_dummy_cleaned, holes=find_sorry_spans(_dummy_cleaned))
+            _orig_propose = _skel_mod.propose_isar_skeletons
+            _skel_mod.propose_isar_skeletons = lambda *a, **kw: [_dummy_sk]
+            
+            best, diag = propose_isar_skeleton_diverse_best(
+                goal, isabelle=isa, session_id=session, model=model,
+                temps=(0.35,), k=1,
+                force_outline=(mode == "outline"), priors_path=priors_path,
+                context_hints=context_hints, lib_templates=lib_templates,
+                alpha=alpha, beta=beta, gamma=gamma, hintlex_path=hintlex_path,
+                hintlex_top=hintlex_top,
+                timeout_s=int(_skeleton_budget_s),
+                trace=trace,
+            )
+            _skel_mod.propose_isar_skeletons = _orig_propose  # restore
+            full = best.text
+
         # Generate outline
         # NOTE: 1.4 Get best proof outline from LLM
-        if legacy_single_outline: # Legacy only makes one skeleton
+        elif legacy_single_outline: # Legacy only makes one skeleton
             if trace:
                 print("[Driver] Generating skeleton with legacy single-outline method...", flush=True)
             full = propose_isar_skeleton(
@@ -821,19 +848,6 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 print(full)
                 print("=" * 100 + "\n", flush=True)
 
-            # Fix 2: repair timer
-            _repair_start = time.monotonic()
-            _elapsed = _repair_start - t0
-            _remaining = max(0.0, timeout - _elapsed)
-            _minimum_repair_s = min(20.0, _remaining * 0.5)  # floor is half of what's left, max 20s
-            _repair_end = max(
-                _repair_start + _minimum_repair_s,   # floor: at least half remaining
-                min(
-                    _repair_start + _repair_reserve_s,  # preferred: full reserve
-                    t0 + timeout                          # ceiling: never exceed total
-                )
-            )
-            left_s = lambda: max(0.0, _repair_end - time.monotonic())
         else:
             temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
             k = int(outline_k) if outline_k is not None else 3

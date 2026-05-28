@@ -148,6 +148,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                          "With --line N, proves only that line (full --trace honoured).")
     ap.add_argument("--line", dest="line_no", type=int, default=None,
                     help="1-based line number to pick from --goals-file (proves just that one goal).")
+    
+    # --- Dummy outline for testing
+    ap.add_argument("--dummy-outline", default=None,
+                help="Path to a .thy snippet or inline Isar text to use as the skeleton, skipping LLM outline generation.")
+
     args = ap.parse_args(argv)
 
     # Resolve goal: --goals-file (+ optional --line) > flag > positional > stdin
@@ -216,6 +221,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             # hintlex
             hintlex_path=args.hintlex,
             hintlex_top=args.hintlex_top,
+            dummy_outline=args.dummy_outline,  # add this
         )
 
     # ---- Goals-file modes ----
