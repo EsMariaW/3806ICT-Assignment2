@@ -466,7 +466,7 @@ def _ensure_have_show_bodies(text: str) -> str:
     while i < n:
         L = lines[i]
         out.append(L)
-        if _HAVE_OR_SHOW.match(L) and not _INLINE_BY.search(L):
+        if _HAVE_OR_SHOW.match(L) and not _INLINE_BY.search(L) and not L.rstrip().endswith("sorry"):
             j = i + 1
             # skip blank lines
             while j < n and lines[j].strip() == "":
