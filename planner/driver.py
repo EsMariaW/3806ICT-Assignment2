@@ -60,16 +60,28 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
         prev_line = full_text[prev_prev_nl:prev_line_end+1]
     except Exception:
         prev_line = ""
+        if trace:
+            print(f"[Driver] fill exception: prev_line set to default empty string")
 
+    # remove the hole, if the prove has been solved before the start of the hole
+    # Example:
+    #    case (Cons x xs)
+    #    show ?case      <-- start of hole, so remove it and the rest of the whole (everything encapsulating hole)
+    #      sorry
     if (_INLINE_BY_TAIL.search(prev_line) or _TACTIC_LINE_RE.match(prev_line) or
         prev_line.strip() in {"done", "."}):
         s, e = hole_span
         return full_text[:s] + "\n" + full_text[e:], True, "(stale-hole)"
 
+    # state_block : Isabelle state in the line just previous to the whole.
+    # Example:
+    #    case (Cons x xs)
+    #    show ?case      <-- state_block is Isabelle state at this point
+    #      sorry
     state_block = _print_state_before_hole(isabelle, session, full_text, hole_span, trace)
     _log_state_block("fill", state_block, trace=trace)
 
-    # orig_goal = _original_goal_from_state(state_block)
+    # eff_goal : the goal that hole is involved in filling
     eff_goal = _effective_goal_from_state(state_block, goal_text, full_text, hole_span, trace)
 
     # if trace:
@@ -87,6 +99,8 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
         do_variants=False, variant_timeout=6, variant_tries=24,
         enable_reranker=True, initial_state_hint=state_block,
     )
+    if trace:
+        print(f"\n\nres\n\n{res}\n\n")
 
     steps = [str(s) for s in res.get("steps", [])]
 
@@ -129,6 +143,21 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
 
         if _verify_full_proof(isabelle, session, new_text):
             return new_text, True, "\n".join(script_lines)
+        
+        # Fallback: splice failed (e.g. bare proof...sorry...qed structure).
+        # Try replacing the entire proof with a top-level finisher instead.
+        # This handles the case where the LLM generates a minimal skeleton
+        # but sledgehammer already has the answer.
+        lemma_line = _first_lemma_line(full_text)
+        if lemma_line and not applies:
+            top_level = lemma_line.rstrip() + "\n  " + fin + "\n"
+            if trace:
+                print(f"[fill] Finisher splice failed; trying top-level fallback: {fin}")
+            if _verify_full_proof(isabelle, session, top_level):
+                if trace:
+                    print(f"[fill] Top-level fallback succeeded: {fin}")
+                return top_level, True, fin + " (top-level-fallback)"
+
         return full_text, False, "finisher-unverified"
 
     # Handle apply-only  (NEVER mark success for apply-only scripts)

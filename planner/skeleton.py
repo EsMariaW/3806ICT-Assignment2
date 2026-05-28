@@ -466,7 +466,7 @@ def _ensure_have_show_bodies(text: str) -> str:
     while i < n:
         L = lines[i]
         out.append(L)
-        if _HAVE_OR_SHOW.match(L) and not _INLINE_BY.search(L):
+        if _HAVE_OR_SHOW.match(L) and not _INLINE_BY.search(L) and not L.rstrip().endswith("sorry"):
             j = i + 1
             # skip blank lines
             while j < n and lines[j].strip() == "":
@@ -615,7 +615,7 @@ def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout
                         
             score = failed_count + sorry_count
             if trace:
-                print(f"[Sketch] ok=false → failures={failed_count} sorries={sorry_count} score={score}", flush=True)
+                print(f"[Skeleton] ok=false → failures={failed_count} sorries={sorry_count} score={score}", flush=True)
             return score
 
         if trace:
