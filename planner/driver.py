@@ -820,7 +820,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             _dummy_sk = Skeleton(text=_dummy_cleaned, holes=find_sorry_spans(_dummy_cleaned))
             _orig_propose = _skel_mod.propose_isar_skeletons
             _skel_mod.propose_isar_skeletons = lambda *a, **kw: [_dummy_sk]
-            
+
             best, diag = propose_isar_skeleton_diverse_best(
                 goal, isabelle=isa, session_id=session, model=model,
                 temps=(0.35,), k=1,
@@ -1055,7 +1055,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 if span is None:
                     # previous hole has been closed
                     if trace:
-                        print(f"[fill] Focused hole @{focused_hole_key} was closed. Moving to first hole.")
+                        print(f"[Driver] Focused hole @{focused_hole_key} was closed. Moving to first hole.")
                     focused_hole_key = None
 
             if span is None:
@@ -1067,6 +1067,8 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             # Always try fill first unless we're in escalated repair stages
             # NOTE: 3.1 Stage 1 Local Repair
             if start_stage == 0:
+                if trace:
+                    print("[Driver] Entering Local Repair stage 0: attempting to fill hole directly...", flush=True)
                 try:
                     full2, ok, script = _fill_one_hole(
                         isa, session, full, span, goal_text, model,
@@ -1077,11 +1079,13 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     full2, ok, script = full, False, "fill-exception"
                 except Exception as ex:
                     if trace:
-                        print(f"[fill] _fill_one_hole crashed: {type(ex).__name__}: {ex}")
+                        print(f"[Driver] _fill_one_hole crashed: {type(ex).__name__}: {ex}")
                     full2, ok, script = full, False, "fill-exception"
 
                 # fill suceedes and makes verified progress: accept and continue to next hole
                 if ok and full2 != full:
+                    if trace:
+                        print("[Driver] Hole filled and verified successfully. Moving on to next hole...", flush=True)
                     full = full2
                     fills.append(script)
                     repair_progress.pop(hole_key, None)
@@ -1089,11 +1093,13 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     continue
                 elif not ok and full2 != full:
                     if trace:
-                        print("[fill] Partial progress from fill (unverified). Opening sorries and staying focused...")
+                        print("[Driver] Partial progress from fill (unverified). Opening sorries and staying focused...")
                     old_start = span[0]
                     full = full2
                     full2, opened = _open_minimal_sorries(isa, session, full)
                     if opened:
+                        if trace:
+                            print("[Driver] Sorries opened. Continuing repair...", flush=True)
                         full = full2
                         new_spans = find_sorry_spans(full)
                         near = _nearest_sorry_span(new_spans, old_start)
@@ -1101,24 +1107,25 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                         continue
                     else:
                         if trace:
-                            print("[fill] Could not open sorries. Escalating to repair stage 1...")
+                            print("[Driver] Could not open sorries. Escalating to repair stage 1...")
                         repair_progress[hole_key] = 1
                         focused_hole_key = hole_key
                         start_stage = 1
                 else:
                     if trace:
-                        print("[fill] Fill made no progress. Escalating to repair stage 1...")
+                        print("[Driver] Fill made no progress. Escalating to repair stage 1...")
                     repair_progress[hole_key] = 1
                     focused_hole_key = hole_key
                     start_stage = 1
             else:
                 if trace and (hole_key, start_stage) not in _skip_fill_logged_once:
-                    print(f"[fill] Skipping fill for hole @{hole_key}; running repairs at stage {start_stage}")
+                    print(f"[Driver] Skipping fill for hole @{hole_key}; running repairs at stage {start_stage}")
                     _skip_fill_logged_once.add((hole_key, start_stage))
 
             # Try CEGIS repairs
             current_stage = repair_progress.get(hole_key, 0)
             if current_stage > 0 and repairs and left_s() > 6:
+                print(f"[Driver] Entering repair stage {current_stage} for hole @{hole_key}...", flush=True)
                 try:
                     state = _print_state_before_hole(isa, session, full, span, trace)
                     eff_goal = _effective_goal_from_state(state, goal_text, full, span, trace)
@@ -1127,10 +1134,12 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     continue
                 except Exception as ex:
                     if trace:
-                        print(f"[repair] Could not compute effective goal: {type(ex).__name__}: {ex}")
+                        print(f"[Driver] Could not compute effective goal: {type(ex).__name__}: {ex}")
                     continue
 
                 try:
+                    if trace:
+                        print(f"[Driver] Attempting CEGIS repairs on hole @{hole_key} with effective goal:\n{eff_goal}\n")
                     patched, applied, _ = try_cegis_repairs(
                         full_text=full, hole_span=span, goal_text=eff_goal, model=model,
                         isabelle=isa, session=session,
@@ -1143,14 +1152,18 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     patched, applied = full, False
                 except Exception as ex:
                     if trace:
-                        print(f"[repair] try_cegis_repairs crashed: {type(ex).__name__}: {ex}")
+                        print(f"[Driver] try_cegis_repairs crashed: {type(ex).__name__}: {ex}")
                     patched, applied = full, False
 
                 if patched != full:
+                    if trace:
+                        print(f"[Driver] CEGIS repairs proposed a change for hole @{hole_key} (applied={applied}). Verifying...")
                     try:
+                        if trace:
+                            print(f"[Driver] Verifying CEGIS repair for hole @{hole_key}...")
                         if _verify_full_proof(isa, session, patched):
                             if trace:
-                                print(f"[repair] Stage {current_stage} repair verified! Clearing progress and moving on.")
+                                print(f"[Driver] Stage {current_stage} repair verified! Clearing progress and moving on.")
                             full = patched
                             repair_progress.clear()
                             stage_tries.clear()
@@ -1175,18 +1188,18 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     false_lines = pop_false_subgoal_lines()
                     force_regen = bool(false_lines)
                     if force_regen and trace:
-                        print(f"[repair] FALSE subgoal proven at line(s) {sorted(false_lines)}; "
+                        print(f"[Driver] FALSE subgoal proven at line(s) {sorted(false_lines)}; "
                               f"skipping leaf-repair and regenerating whole proof.")
 
                     should_escalate = force_regen
                     if start_stage == 1 and stage_tries[key] >= STAGE1_CAP:
                         should_escalate = True
                         if trace:
-                            print(f"[repair] Stage 1 cap ({STAGE1_CAP}) reached. Escalating to stage 2...")
+                            print(f"[Driver] Stage 1 cap ({STAGE1_CAP}) reached. Escalating to stage 2...")
                     elif start_stage == 2 and stage_tries.get((hole_key, 2), 0) >= STAGE2_CAP:
                         should_escalate = True
                         if trace:
-                            print(f"[repair] Stage 2 cap ({STAGE2_CAP}) reached. Regenerating whole proof...")
+                            print(f"[Driver] Stage 2 cap ({STAGE2_CAP}) reached. Regenerating whole proof...")
 
                     if should_escalate:
                         # A proven-false subgoal means stage-2 leaf repair is also
@@ -1208,7 +1221,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                                 new_full, ok_re = full, False
                             except Exception as ex:
                                 if trace:
-                                    print(f"[repair] regenerate_whole_proof crashed: {type(ex).__name__}: {ex}")
+                                    print(f"[Driver] regenerate_whole_proof crashed: {type(ex).__name__}: {ex}")
                                 new_full, ok_re = full, False
 
                             if ok_re and new_full != full:
@@ -1219,7 +1232,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                                 continue
 
                             if trace:
-                                print("[repair] Whole regeneration failed to verify; proposing a fresh outline…")
+                                print("[Driver] Whole regeneration failed to verify; proposing a fresh outline…")
                             temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
                             k = int(outline_k) if outline_k is not None else 3
                             best, _ = propose_isar_skeleton_diverse_best(
