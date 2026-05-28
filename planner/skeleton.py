@@ -585,27 +585,29 @@ def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout
                 continue
             obj = _decode_body_to_dict(_get_field(r, ("response_body", "body", "message", "payload")))
             if not isinstance(obj, dict):
-                if trace:
-                    print(f"[Skeleton] FINISHED body not a dict: {str(obj)[:100]}", flush=True)
                 continue
             if obj.get("ok") is True:
                 if trace:
                     print(f"[Skeleton] proof complete (ok=true) → score 0", flush=True)
                 return 0
+            
+            # Compute both failure and sorry counts before deciding score
             nodes = obj.get("nodes") or []
+            failed_count = sum((n.get("status") or {}).get("failed", 0) for n in nodes)
+            sorry_count = len(find_sorry_spans(outline_text))
+
             for node in nodes:
                 for msg in (node.get("messages") or []):
                     text = str(msg.get("message", ""))
                     if "goal (" in text or "subgoal" in text:
                         n = parse_subgoals(text)
-                        if trace:
-                            print(f"[Skeleton] found goal text, parse_subgoals={n!r}, text={text[:100]!r}", flush=True)
                         if isinstance(n, int):
                             return n
-            sorry_count = len(find_sorry_spans(outline_text))
+                        
+            score = failed_count + sorry_count
             if trace:
-                print(f"[Skeleton] ok=false, no goal text → sorry count={sorry_count} as proxy", flush=True)
-            return sorry_count
+                print(f"[Sketch] ok=false → failures={failed_count} sorries={sorry_count} score={score}", flush=True)
+            return score
 
         if trace:
             print(f"[Skeleton] no FINISHED response in {len(resps)} responses", flush=True)

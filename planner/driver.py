@@ -835,8 +835,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             full = best.text
             if trace:
                 score, sorry_count, subgoals, _ = diag["scores"][0]
-                print(f"[Driver] Dummy outline scored: score={score:.4f} sorries={sorry_count} subgoals={subgoals}", flush=True)
-                print(full)
+                print(f"[Driver] scored candidate: subgoals={subgoals}", flush=True)
 
         # Generate outline
         # NOTE: 1.4 Get best proof outline from LLM
