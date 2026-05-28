@@ -576,7 +576,9 @@ def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout
                 print(f"[Skeleton] no responses from run_theory", flush=True)
             return 9999
         if trace:
-            print(f"[Skeleton] resps: {resps}", flush=True)
+            print(f"[Skeleton] resps:", flush=True)
+            for resp in resps:
+                print(f"\t\t{resp}", flush=True)
 
         for r in reversed(resps):
             if _normalize_type(_get_field(r, ("response_type", "type", "kind", "tag", "name"))) != "FINISHED":
