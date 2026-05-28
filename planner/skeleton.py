@@ -568,15 +568,15 @@ def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout
     try:
         thy = build_theory(outline_text.splitlines(), add_print_state=False, end_with=None)
         if trace:
-            print(f"[Sketch] theory:\n{thy}", flush=True)
+            print(f"[Skeleton] theory:\n{thy}", flush=True)
 
         resps = run_theory(isabelle, session_id, thy, timeout_s=timeout_s)
         if not resps:
             if trace:
-                print(f"[Sketch] no responses from run_theory", flush=True)
+                print(f"[Skeleton] no responses from run_theory", flush=True)
             return 9999
         if trace:
-            print(f"[Sketch] resps: {resps}", flush=True)
+            print(f"[Skeleton] resps: {resps}", flush=True)
 
         for r in reversed(resps):
             if _normalize_type(_get_field(r, ("response_type", "type", "kind", "tag", "name"))) != "FINISHED":
@@ -584,11 +584,11 @@ def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout
             obj = _decode_body_to_dict(_get_field(r, ("response_body", "body", "message", "payload")))
             if not isinstance(obj, dict):
                 if trace:
-                    print(f"[Sketch] FINISHED body not a dict: {str(obj)[:100]}", flush=True)
+                    print(f"[Skeleton] FINISHED body not a dict: {str(obj)[:100]}", flush=True)
                 continue
             if obj.get("ok") is True:
                 if trace:
-                    print(f"[Sketch] proof complete (ok=true) → score 0", flush=True)
+                    print(f"[Skeleton] proof complete (ok=true) → score 0", flush=True)
                 return 0
             nodes = obj.get("nodes") or []
             for node in nodes:
@@ -597,21 +597,21 @@ def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout
                     if "goal (" in text or "subgoal" in text:
                         n = parse_subgoals(text)
                         if trace:
-                            print(f"[Sketch] found goal text, parse_subgoals={n!r}, text={text[:100]!r}", flush=True)
+                            print(f"[Skeleton] found goal text, parse_subgoals={n!r}, text={text[:100]!r}", flush=True)
                         if isinstance(n, int):
                             return n
             sorry_count = len(find_sorry_spans(outline_text))
             if trace:
-                print(f"[Sketch] ok=false, no goal text → sorry count={sorry_count} as proxy", flush=True)
+                print(f"[Skeleton] ok=false, no goal text → sorry count={sorry_count} as proxy", flush=True)
             return sorry_count
 
         if trace:
-            print(f"[Sketch] no FINISHED response in {len(resps)} responses", flush=True)
+            print(f"[Skeleton] no FINISHED response in {len(resps)} responses", flush=True)
         return 9999
 
     except Exception as e:
         if trace:
-            print(f"[Sketch] FAILED: {type(e).__name__}: {e}", flush=True)
+            print(f"[Skeleton] FAILED: {type(e).__name__}: {e}", flush=True)
         return 9999
 
 def _state_block_for_goal(isabelle, session_id: str, goal: str) -> str:
