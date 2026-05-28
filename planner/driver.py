@@ -129,6 +129,21 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
 
         if _verify_full_proof(isabelle, session, new_text):
             return new_text, True, "\n".join(script_lines)
+
+        # Fallback: splice failed (e.g. bare proof...sorry...qed structure).
+        # Try replacing the entire proof with a top-level finisher instead.
+        # This handles the case where the LLM generates a minimal skeleton
+        # but sledgehammer already has the answer.
+        lemma_line = _first_lemma_line(full_text)
+        if lemma_line and not applies:
+            top_level = lemma_line.rstrip() + "\n  " + fin + "\n"
+            if trace:
+                print(f"[fill] Finisher splice failed; trying top-level fallback: {fin}")
+            if _verify_full_proof(isabelle, session, top_level):
+                if trace:
+                    print(f"[fill] Top-level fallback succeeded: {fin}")
+                return top_level, True, fin + " (top-level-fallback)"
+
         return full_text, False, "finisher-unverified"
 
     # Handle apply-only  (NEVER mark success for apply-only scripts)
