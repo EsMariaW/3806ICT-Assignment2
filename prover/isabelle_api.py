@@ -190,15 +190,21 @@ def run_theory(
                 timeout_s = 0
         if timeout_s > 0:
             # Always enforce a wall-clock timeout (even if native timeouts exist but are ignored).
-            with ThreadPoolExecutor(max_workers=1) as ex:
-                fut = ex.submit(_use_theories_call, isabelle, session_id=session_id, master_dir=tmpdir.name, timeout_s=timeout_s)
+            ex = ThreadPoolExecutor(max_workers=1)
+            fut = ex.submit(_use_theories_call, isabelle, session_id=session_id, master_dir=tmpdir.name, timeout_s=timeout_s)
+            try:
+                return fut.result(timeout=timeout_s)
+            except FuturesTimeout:
+                global _use_timeouts
+                _use_timeouts += 1
+                _last_call_timed_out = True
                 try:
-                    return fut.result(timeout=timeout_s)
-                except FuturesTimeout:
-                    global _use_timeouts
-                    _use_timeouts += 1
-                    _last_call_timed_out = True
-                    return []
+                    getattr(isabelle, "interrupt", lambda: None)()
+                except Exception:
+                    pass
+                return []
+            finally:
+                ex.shutdown(wait=False, cancel_futures=True)
 
         # No timeout requested → direct call
         return list(isabelle.use_theories(theories=["Scratch"], session_id=session_id, master_dir=tmpdir.name))

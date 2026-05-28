@@ -1,10 +1,9 @@
 import json
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 from typing import Iterable, List, Optional, Tuple
 
-from prover.isabelle_api import build_theory, last_print_state_block, run_theory, finished_ok
+from prover.isabelle_api import build_theory, last_print_state_block, run_theory, finished_ok, last_call_timed_out
 
 # --- Constants ----------------------------------------------------------------
 _LLM_SUBGOAL_MARK = "[LLM_SUBGOAL]"
@@ -18,23 +17,26 @@ _ISA_VERIFY_TIMEOUT_S = int(os.getenv("ISABELLE_VERIFY_TIMEOUT_S", "30"))
 def _run_theory_with_timeout(isabelle, session: str, thy: List[str], *, timeout_s: Optional[int]) -> List:
     """Execute theory with a hard timeout, interrupting Isabelle if needed."""
     timeout_s = timeout_s or _ISA_VERIFY_TIMEOUT_S
-    with ThreadPoolExecutor(max_workers=1) as ex:
-        fut = ex.submit(run_theory, isabelle, session, thy)
+    resps = run_theory(isabelle, session, thy, timeout_s=timeout_s)
+    if last_call_timed_out():
         try:
-            return fut.result(timeout=timeout_s)
-        except _FuturesTimeout:
-            try:
-                getattr(isabelle, "interrupt", lambda: None)()
-            except Exception:
-                pass
-            raise TimeoutError("isabelle_run_timeout")
+            getattr(isabelle, "interrupt", lambda: None)()
+        except Exception:
+            pass
+        raise TimeoutError("isabelle_run_timeout")
+    return resps
 
 
-def _verify_full_proof(isabelle, session: str, text: str) -> bool:
-    """Return True iff the full Isar text checks under _ISA_VERIFY_TIMEOUT_S."""
+def _verify_full_proof(isabelle, session: str, text: str, *, timeout_s: Optional[int] = None) -> bool:
+    """Return True iff the full Isar text checks within the requested timeout."""
     try:
         thy = build_theory(text.splitlines(), add_print_state=False, end_with=None)
-        result = _run_theory_with_timeout(isabelle, session, thy, timeout_s=_ISA_VERIFY_TIMEOUT_S)
+        result = _run_theory_with_timeout(
+            isabelle,
+            session,
+            thy,
+            timeout_s=timeout_s if timeout_s is not None else _ISA_VERIFY_TIMEOUT_S,
+        )
         ok, _ = finished_ok(result)
         return ok
     except Exception:
@@ -271,7 +273,15 @@ def _extract_print_state_from_responses(resps: List) -> str:
         resp_type = str(getattr(resp, "response_type", "")).upper()
         if resp_type == "NOTE":
             try:
-                body = json.loads(getattr(resp, "response_body", "") or "{}")
+                raw_body = getattr(resp, "response_body", None)
+                # Fix: handle non-string types
+                if raw_body is None:
+                    continue
+                if isinstance(raw_body, (bytes, bytearray)):
+                    raw_body = raw_body.decode(errors="replace")
+                elif not isinstance(raw_body, str):
+                    raw_body = str(raw_body)
+                body = json.loads(raw_body) if raw_body.strip().startswith("{") else {}
             except Exception:
                 body = {}
             if isinstance(body, dict) and body.get("kind") == "writeln":
@@ -287,10 +297,18 @@ def _extract_print_state_from_responses(resps: List) -> str:
             continue
 
         body = getattr(resp, "response_body", None)
-        if isinstance(body, bytes):
+        if body is None:
+            continue
+        # Fix: handle other non-string types
+        if isinstance(body, (bytes, bytearray)):
             body = body.decode(errors="replace")
+        elif not isinstance(body, str):
+            try:
+                body = str(body)
+            except Exception:
+                continue
         try:
-            data = json.loads(body) if isinstance(body, str) and body.strip().startswith("{") else body
+            data = json.loads(body) if body.strip().startswith("{") else None
             if not isinstance(data, dict):
                 continue
         except (json.JSONDecodeError, TypeError):
@@ -314,7 +332,7 @@ def _extract_print_state_from_responses(resps: List) -> str:
                         or text.strip().startswith('Undefined fact: "assms"')
                         or text.strip().startswith('Undefined fact: "set_empty_conv"')
                     )
-                    if not benign:
+                    if not benign and os.getenv("PROVER_DEBUG", "").strip().lower() in ("1", "true", "yes", "on"):
                         print(f"[DEBUG ERROR]: {text[:300]}")
 
     # print(f"[DEBUG] Total writeln messages: {debug_writeln_count}, LLM markers found: {debug_llm_found}")
@@ -343,6 +361,8 @@ def _print_state_before_hole(isabelle, session: str, full_text: str, hole_span: 
         #             print(f"{i:3d}: {ln}")
         #     print("=" * 60)
         resps = _run_theory_with_timeout(isabelle, session, thy, timeout_s=_ISA_FAST_TIMEOUT_S)
+        if os.getenv("PROVER_DEBUG", "").strip().lower() in ("1", "true", "yes", "on"):
+            print(f"[DEBUG RESPS] type={type(resps)}, value={repr(resps)[:200]}")
         state = _extract_print_state_from_responses(resps)
         # if trace:
         #     print(f"[DEBUG] State block contains [LLM_VARS]: {_LLM_VARS_MARK in state}")
@@ -356,4 +376,6 @@ def _print_state_before_hole(isabelle, session: str, full_text: str, hole_span: 
     except Exception as e:
         if trace:
             print(f"[DEBUG] Exception: {e}")
+        import traceback
+        traceback.print_exc()
         return ""

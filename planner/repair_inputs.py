@@ -3,8 +3,8 @@ import os
 import json
 import requests
 from typing import Dict, List, Optional, Tuple, Set, Any
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
-from prover.isabelle_api import build_theory, run_theory, last_print_state_block, finished_ok
+from concurrent.futures import TimeoutError as _FuturesTimeout
+from prover.isabelle_api import build_theory, run_theory, last_print_state_block, finished_ok, last_call_timed_out
 
 # ========== Configuration ==========
 _ISA_FAST_TIMEOUT_S = int(os.getenv("ISABELLE_FAST_TIMEOUT_S", "12"))
@@ -23,27 +23,37 @@ def _clamp_line_index(lines: List[str], idx: int) -> int:
 def _run_theory_with_timeout(isabelle, session: str, thy: List[str], *, timeout_s: Optional[int]) -> List:
     if not timeout_s or timeout_s <= 0:
         return run_theory(isabelle, session, thy)
-    with ThreadPoolExecutor(max_workers=1) as ex:
-        fut = ex.submit(run_theory, isabelle, session, thy)
-        try:
-            return fut.result(timeout=timeout_s)
-        except _FuturesTimeout:
-            if hasattr(isabelle, "interrupt"):
-                try:
-                    isabelle.interrupt()
-                except Exception:
-                    pass
-            raise TimeoutError("isabelle_run_timeout")
+    resps = run_theory(isabelle, session, thy, timeout_s=timeout_s)
+    if last_call_timed_out():
+        if hasattr(isabelle, "interrupt"):
+            try:
+                isabelle.interrupt()
+            except Exception:
+                pass
+        raise TimeoutError("isabelle_run_timeout")
+    return resps
 
 def _earliest_failure_anchor(isabelle, session: str, full_text: str, *, default_line_0: int) -> Tuple[int, str]:
+    # build_theory prepends a 3-line header ("theory Scratch" / "imports …" /
+    # "begin") before the proof body, so Isabelle's 1-based pos.line is offset
+    # from the proof-text line by exactly this many lines. We subtract it to map
+    # an error position back onto the proof text we index into here. (The header
+    # is always 3 lines regardless of how many imports are listed.)
+    _HEADER_OFFSET = 3
     try:
         lines = full_text.splitlines()
         _, errs = _quick_state_and_errors(isabelle, session, full_text)
         err_lines = sorted(_extract_error_lines(errs))
         if err_lines:
-            pos0 = err_lines[0] - 1
+            # theory line -> proof-text 0-based index: subtract header, then 1 for 0-based.
+            pos0 = err_lines[0] - 1 - _HEADER_OFFSET
             if 0 <= pos0 < len(lines):
                 return pos0, "error_line"
+            # Fallback A: if header correction over/undershot but the *raw* 0-based
+            # line is in range, use that (defensive — keeps prior behaviour working).
+            raw0 = err_lines[0] - 1
+            if 0 <= raw0 < len(lines):
+                return raw0, "error_line_raw"
             for i, L in enumerate(lines):
                 if "sorry" in L:
                     return i, "first_sorry_from_error"
@@ -77,10 +87,19 @@ def _extract_print_state_from_responses(resps: List) -> str:
         if str(getattr(resp, "response_type", "")).upper() != "FINISHED":
             continue
         body = getattr(resp, "response_body", None)
-        if isinstance(body, bytes):
+        # Fix: handle non-string response types
+        if body is None:
+            continue
+        if isinstance(body, (bytes, bytearray)):
             body = body.decode(errors="replace")
+        elif not isinstance(body, str):
+            try:
+                body = str(body)
+            except Exception:
+                continue
+        # body is now guaranteed to be a string
         try:
-            data = json.loads(body) if isinstance(body, str) and body.strip().startswith("{") else body
+            data = json.loads(body) if isinstance(body, str) and body.strip().startswith("{") else None
             if not isinstance(data, dict):
                 continue
             for node in data.get("nodes", []):
@@ -106,9 +125,17 @@ def _quick_state_and_errors(isabelle, session: str, full_text: str) -> Tuple[str
         errors: List[dict] = []
         
         for r in resps or []:
+            # Fix: handle non-string response types
             raw = getattr(r, "response_body", None)
+            if raw is None:
+                continue
             if isinstance(raw, (bytes, bytearray)):
                 raw = raw.decode(errors="replace")
+            elif not isinstance(raw, str):
+                try:
+                    raw = str(raw)
+                except Exception:
+                    continue
             
             # Try structured JSON first
             try:
@@ -119,7 +146,14 @@ def _quick_state_and_errors(isabelle, session: str, full_text: str) -> Tuple[str
                             if str(msg.get("kind", "")).lower() == "error":
                                 txt = str(msg.get("message", "") or "").strip()
                                 if txt:
-                                    errors.append({"text": txt, "line": msg.get("line")})
+                                    # Isabelle nests the line number under "pos":{"line":N}.
+                                    # Read pos.line first; fall back to a top-level "line"
+                                    # key for any error shape that provides it directly.
+                                    pos = msg.get("pos") or {}
+                                    line_no = pos.get("line") if isinstance(pos, dict) else None
+                                    if line_no is None:
+                                        line_no = msg.get("line")
+                                    errors.append({"text": txt, "line": line_no})
             except (json.JSONDecodeError, TypeError, AttributeError):
                 pass
             
@@ -188,22 +222,23 @@ def _extract_nitpick_text_from_responses(resps_text: str) -> str:
             continue
         if s.startswith("{"):
             try:
-                data = json.loads(s)
-                if isinstance(data, dict):
-                    msg = data.get("message")
-                    if isinstance(msg, str) and msg.strip():
-                        messages.append(msg)
-                    for node in data.get("nodes", []):
-                        for m in node.get("messages", []):
-                            if isinstance(m, dict):
-                                t = m.get("message", "")
+                if isinstance(s, str) and s.strip().startswith("{"):
+                    data = json.loads(s)
+                    if isinstance(data, dict):
+                        msg = data.get("message")
+                        if isinstance(msg, str) and msg.strip():
+                            messages.append(msg)
+                        for node in data.get("nodes", []):
+                            for m in node.get("messages", []):
+                                if isinstance(m, dict):
+                                    t = m.get("message", "")
+                                    if isinstance(t, str) and t:
+                                        messages.append(t)
+                        for err in data.get("errors", []):
+                            if isinstance(err, dict):
+                                t = err.get("message", "")
                                 if isinstance(t, str) and t:
                                     messages.append(t)
-                    for err in data.get("errors", []):
-                        if isinstance(err, dict):
-                            t = err.get("message", "")
-                            if isinstance(t, str) and t:
-                                messages.append(t)
                 continue
             except json.JSONDecodeError:
                 pass
@@ -410,10 +445,16 @@ end
         full_output: List[str] = []
         for r in resps or []:
             body = getattr(r, "response_body", None)
-            if isinstance(body, (bytes, bytearray)):
-                body = body.decode(errors="replace")
-            elif body is None:
+            if body is None:
                 continue
+            if isinstance(body, bytes):
+                body = body.decode(errors="replace")
+            elif not isinstance(body, str):
+                # Fix: handle nonstring types
+                try:
+                    body = str(body)
+                except Exception:
+                    continue
             full_output.append(str(body))
         
         result = "\n".join(full_output)
@@ -445,6 +486,104 @@ def get_counterexample_hints_for_repair(
         state_block,
         timeout_s=timeout_s
     )
+
+# [FIX] adding this function for repair.py
+def _run_nitpick_at_line(
+    isabelle,
+    session: str,
+    full_text_lines: List[str],
+    *,
+    inject_before_1based: int,
+    timeout_s: int = 6,
+) -> Dict[str, Any]:
+    """Run Quickcheck+Nitpick on the subgoal *at* a specific proof line.
+
+    Unlike `_counterexample_hints_from_state`, which recreates the lemma's
+    overall goal in a fresh theory, this injects the diagnostics inline right
+    before `inject_before_1based`, so it probes the *local* obligation that the
+    failing tactic on that line is trying to discharge. This is what tells us
+    whether an intermediate `have` the planner invented is actually FALSE (in
+    which case no tactic repair can save it) versus merely hard to prove (where
+    a stronger tactic / more facts would help).
+
+    Returns a dict:
+      {
+        "found_cex": bool,        # True if a (potential) counterexample was reported
+        "bindings": List[str],    # e.g. ["xs = [a]", "ys = []"]
+        "def_hints": List[str],   # e.g. ["unfolding foo_def"]
+        "raw": str,               # trimmed raw output, for logging
+      }
+
+    Never raises; on any failure returns found_cex=False with empty hints.
+    """
+    empty: Dict[str, Any] = {"found_cex": False, "bindings": [], "def_hints": [], "raw": ""}
+    try:
+        n = len(full_text_lines)
+        if n == 0:
+            return empty
+        # Clamp to a valid 0-based insertion index.
+        idx0 = max(0, min(inject_before_1based - 1, n - 1))
+
+        # Match the indentation of the line we're probing so the injected
+        # diagnostic sits at the same proof depth.
+        target = full_text_lines[idx0] or ""
+        indent = target[: len(target) - len(target.lstrip(" "))]
+        pad = indent if indent else "  "
+
+        # Quickcheck first (fast, concrete values); Nitpick second (deeper,
+        # finds counterexamples Quickcheck misses). Both are non-destructive
+        # diagnostics — they report and the proof continues — so even if the
+        # surrounding proof later fails, we still capture their messages.
+        qc_to = max(1, timeout_s // 3)
+        np_to = max(1, timeout_s)
+        injected = [
+            f"{pad}quickcheck[timeout={qc_to}]",
+            f"{pad}nitpick[timeout={np_to}, verbose, show_all]",
+        ]
+
+        variant_lines = full_text_lines[:idx0] + injected + full_text_lines[idx0:]
+
+        thy = build_theory(variant_lines, add_print_state=False, end_with=None)
+        resps = _run_theory_with_timeout(
+            isabelle, session, thy, timeout_s=timeout_s + 5
+        )
+
+        full_output: List[str] = []
+        for r in resps or []:
+            body = getattr(r, "response_body", None)
+            if isinstance(body, (bytes, bytearray)):
+                body = body.decode(errors="replace")
+            elif body is None:
+                continue
+            full_output.append(str(body))
+        result = "\n".join(full_output)
+
+        hints = _nitpick_state_hints_from_text(result)
+        bindings = hints.get("bindings", []) if isinstance(hints, dict) else []
+        def_hints = hints.get("def_hints", []) if isinstance(hints, dict) else []
+
+        # `_nitpick_state_hints_from_text` already gates on the counterexample
+        # markers, so non-empty bindings imply a CEX was found. Also re-check the
+        # markers directly in case a CEX was reported with no parseable bindings.
+        extracted = _extract_nitpick_text_from_responses(result) or result
+        found = bool(bindings) or any(m in extracted.lower() for m in _CEX_MARKERS)
+
+        # Trim raw output for logging sanity.
+        raw = extracted.strip()
+        if len(raw) > 1200:
+            raw = raw[:600] + "\n…\n" + raw[-600:]
+
+        return {
+            "found_cex": found,
+            "bindings": bindings,
+            "def_hints": def_hints,
+            "raw": raw,
+        }
+    except (TimeoutError, _FuturesTimeout):
+        # Diagnostic timed out — treat as inconclusive, not as "no counterexample".
+        return {"found_cex": False, "bindings": [], "def_hints": [], "raw": "(nitpick timeout)"}
+    except Exception as e:
+        return {"found_cex": False, "bindings": [], "def_hints": [], "raw": f"(nitpick error: {type(e).__name__})"}
 
 # ========== Context Analysis ==========
 

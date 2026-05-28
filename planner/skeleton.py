@@ -4,6 +4,7 @@ from typing import List, Tuple, Optional, Any, Dict, Iterable
 import json
 import os
 import re
+import time                          # Fix: needed for per-request sleep
 from functools import lru_cache
 from planner.prompts import SKELETON_PROMPT
 import requests
@@ -19,7 +20,7 @@ from prover.config import (
 )
 
 # Isabelle helpers (for quick sketch check)
-from prover.isabelle_api import build_theory, run_theory, last_print_state_block
+from prover.isabelle_api import build_theory, run_theory, last_print_state_block, _normalize_type, _get_field, _decode_body_to_dict
 from prover.utils import parse_subgoals
 
 # Reuse local-context miner from repair (defs/facts list)
@@ -155,6 +156,9 @@ def _gemini_resolve_model_id(model_id: str, *, timeout_s: Optional[int] = None) 
         return (stable or cands)[0]
     return model_id
 
+# #Fix: cache _gemini_cli_available() so shutil.which is not called on every
+# #Fix: iteration of the temperature loop (was firing once per LLM call).
+@lru_cache(maxsize=1)
 def _gemini_cli_available() -> bool:
     from shutil import which
     return which("gemini") is not None
@@ -175,8 +179,11 @@ def _gemini_rest_generate_simple(prompt: str, model_id: str, *, timeout_s: Optio
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set (needed for Gemini REST)")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={api_key}"
+
+    # Fix: don't use OLLAMA_NUM_PREDICT for Gemini — it's far too small
+    gemini_max_tokens = max(OLLAMA_NUM_PREDICT, 4096)
     body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": OLLAMA_NUM_PREDICT}}
+            "generationConfig": {"maxOutputTokens": gemini_max_tokens}}
     resp = _SESSION.post(url, json=body, timeout=timeout_s or OLLAMA_TIMEOUT_S)
     resp.raise_for_status()
     data = resp.json()
@@ -191,22 +198,29 @@ def _gemini_rest_generate_simple(prompt: str, model_id: str, *, timeout_s: Optio
     return str(data).strip()
 
 def _gemini_generate_simple(prompt: str, model_id: str, *, timeout_s: Optional[int] = None) -> str:
+    # #Fix: resolve the model ID exactly once, outside any retry/fallback branch.
+    # #Fix: Previously this was called inside a loop context, contributing extra
+    # #Fix: HTTP hits to /v1beta/models on every temperature iteration.
     resolved = _gemini_resolve_model_id(model_id, timeout_s=timeout_s)
+
+    # #Fix: Try CLI first if available, then fall through to REST exactly once.
+    # #Fix: The old code had a second fallback block that repeated both CLI and
+    # #Fix: REST attempts with a hardcoded "gemini-2.5-pro" model, turning one
+    # #Fix: logical request into up to 4 HTTP calls. Now we make at most 2 attempts
+    # #Fix: (CLI → REST) with no further silent retry loops.
     if _gemini_cli_available():
         try:
             return _gemini_cli_generate_simple(prompt, resolved, timeout_s=timeout_s)
         except Exception:
-            pass
-    try:
-        return _gemini_rest_generate_simple(prompt, resolved, timeout_s=timeout_s)
-    except Exception:
-        fallback = "gemini-2.5-pro"
-        if _gemini_cli_available():
-            try:
-                return _gemini_cli_generate_simple(prompt, fallback, timeout_s=timeout_s)
-            except Exception:
-                pass
-        return _gemini_rest_generate_simple(prompt, fallback, timeout_s=timeout_s)
+            pass  # CLI failed; fall through to REST once only
+
+    # #Fix: Single REST attempt — no secondary fallback loop after this.
+    return _gemini_rest_generate_simple(prompt, resolved, timeout_s=timeout_s)
+
+# #Fix: Add a per-call inter-request delay (seconds) for Gemini to avoid
+# #Fix: exceeding the API's requests-per-minute quota when looping over
+# #Fix: multiple temperatures in propose_isar_skeletons.
+_GEMINI_INTER_REQUEST_DELAY_S: float = 1.0
 
 def _generate_simple(
     prompt: str,
@@ -216,24 +230,54 @@ def _generate_simple(
     num_predict: Optional[int] = None,
     timeout_s: Optional[int] = None,
 ) -> str:
+
+    display_model = model or DEFAULT_MODEL
+    dump = os.getenv("LLM_DUMP", "").strip().lower() in ("1", "true", "yes", "on")
+    if dump:
+        print(f"{'='*60}", flush=True)
+        print(f"[Skeleton] LLM Prompt:\n{prompt.rstrip()}", flush=True)
+        print(f"{'-'*60}", flush=True)
+
     if model:
         if model.startswith("hf:"):
-            return _hf_generate_simple(
+            raw = _hf_generate_simple(
                 prompt, model_id=model[len("hf:"):],
                 temperature=temperature, top_p=top_p,
                 max_new_tokens=num_predict, timeout_s=timeout_s
             )
-        if model.startswith("gemini:"):
-            return _gemini_generate_simple(
+        elif model.startswith("gemini:"):
+            raw = _gemini_generate_simple(
                 prompt, model_id=model[len("gemini:"):],
                 timeout_s=timeout_s
             )
-        if model.startswith("ollama:"):
+            # #Fix: Sleep after every Gemini REST/CLI call so back-to-back
+            # #Fix: temperature iterations don't all fire within the same second
+            # #Fix: and trip the 429 quota. Adjust _GEMINI_INTER_REQUEST_DELAY_S
+            # #Fix: if your quota tier allows faster throughput.
+            time.sleep(_GEMINI_INTER_REQUEST_DELAY_S)
+        elif model.startswith("ollama:"):
             model = model[len("ollama:"):]
-    return _ollama_generate_simple(
-        prompt, model=model, temperature=temperature, top_p=top_p,
-        num_predict=num_predict, timeout_s=timeout_s
-    )
+            raw = _ollama_generate_simple(
+                prompt, model=model, temperature=temperature, top_p=top_p,
+                num_predict=num_predict, timeout_s=timeout_s
+            )
+        else:
+            raw = _ollama_generate_simple(
+                prompt, model=model, temperature=temperature, top_p=top_p,
+                num_predict=num_predict, timeout_s=timeout_s
+            )
+    else:
+        raw = _ollama_generate_simple(
+            prompt, model=model, temperature=temperature, top_p=top_p,
+            num_predict=num_predict, timeout_s=timeout_s
+        )
+
+    if dump:
+        print(f"[Skeleton] model={display_model}", flush=True)
+        print(f"[Skeleton] LLM Output:\n{raw}", flush=True)
+        print(f"{'='*60}", flush=True)
+
+    return raw
 
 # -----------------------------------------------------------------------------
 # Utilities: sorry spans, sanitize, state block, facts, scoring
@@ -358,6 +402,57 @@ def _normalize_show_kinds(text: str) -> str:
         lines[i] = SHOW_META_AT_SHOW.sub(_repl, L, count=1)
     return "\n".join(lines)
 
+def _drop_redundant_sorry(text: str) -> str:
+    """Remove a `sorry` that directly follows a finisher.
+
+    Models frequently emit BOTH a real finisher and a trailing `sorry` for the
+    same obligation, e.g.
+
+        have f1: "..."
+          using a1 by simp
+          sorry            <-- illegal: the `have` is already closed by `by simp`
+
+    The skeleton prompt's examples only ever model `sorry` at every leaf, which
+    nudges the model toward appending `sorry` even when it also supplied a `by`.
+    `_ensure_have_show_bodies` only *adds* missing bodies; it never removes this
+    redundant `sorry`, so the malformed pair survives and aborts the proof before
+    the fill/repair stages can run. This pass deletes the dangling `sorry` when the
+    nearest preceding non-blank line already closed the goal.
+
+    A line "closes the goal" if it is `done`, a bare `.`/`..`, a standalone
+    `by <method>`, or ends in an inline ` by <method>` (e.g. `using a1 by simp`).
+    We intentionally do NOT treat `proof`/`next`/`qed`/`case` as closers, so we
+    never strip a `sorry` that is the legitimate body of a freshly opened goal.
+
+    Additionally collapses *duplicate* sorries: a standalone `sorry` whose nearest
+    preceding non-blank line already ends the obligation with `sorry` (either a
+    standalone `sorry` or an inline `... sorry`, e.g. `have f4: "..." sorry`). The
+    model sometimes emits both an inline and a trailing sorry for one `have`, which
+    is malformed; we keep the first and drop the redundant follow-on.
+    """
+    lines = text.splitlines()
+    out: List[str] = []
+    # Index, in `out`, of the most recent non-blank line (for back-reference).
+    last_nonblank = -1
+    closer_by = re.compile(r"(?m)^\s*by\b")
+    closer_done = re.compile(r"(?m)^\s*(?:done|\.\.?)\s*$")
+    inline_by = re.compile(r"\s+by\s+\S")
+    ends_in_sorry = re.compile(r"\bsorry\s*$")
+    for L in lines:
+        if SORRY_RE.search(L) and L.strip() == "sorry" and last_nonblank >= 0:
+            prev = out[last_nonblank]
+            # (a) redundant after a real finisher
+            if closer_by.match(prev) or closer_done.match(prev) or inline_by.search(prev):
+                continue
+            # (b) duplicate sorry: the obligation is already terminated by a sorry
+            #     on the previous non-blank line (standalone or inline).
+            if ends_in_sorry.search(prev):
+                continue
+        out.append(L)
+        if L.strip() != "":
+            last_nonblank = len(out) - 1
+    return "\n".join(out)
+
 def _ensure_have_show_bodies(text: str) -> str:
     """
     Ensure every 'have …' / 'show …' has a body, but *preserve* local continuations:
@@ -414,6 +509,11 @@ def _sanitize_outline(text: str, goal: str, *, force_outline: bool) -> str:
     # Normalize ellipsis first (avoid Unicode / spaced form)
     text = _normalize_calculation_ellipsis(text)
 
+    # Fix 5: replace illegal 'by sorry' with just 'sorry'
+    text = re.sub(r'\bby\s+sorry\b', 'sorry', text)
+    # Fix 5: replace 'using ... sorry' inline patterns
+    text = re.sub(r'\busing\s+\S+\s+sorry\b', 'sorry', text)
+
     # Keep content from *this* lemma onwards
     goal_header = f'lemma "{goal}"'
     idx = text.find(goal_header)
@@ -445,9 +545,11 @@ def _sanitize_outline(text: str, goal: str, *, force_outline: bool) -> str:
 
     # Light Isar fixups (order matters)
     #  1) Flip only the meta after 'show', preserving 'then/using/from/with/finally' etc.
+    #  1b) Drop any 'sorry' that redundantly follows a 'by'/'done' finisher.
     #  2) Ensure every 'have/show' has a body; insert 'sorry' if missing to trigger fill/repair.
     #  3) Prefer 'proof -' when calculational cues are present.
     text = _normalize_show_kinds(text)
+    text = _drop_redundant_sorry(text)
     text = _ensure_have_show_bodies(text)
     text = _maybe_proof_dash(text)
 
@@ -458,14 +560,58 @@ def _sanitize_outline(text: str, goal: str, *, force_outline: bool) -> str:
         text += "\n"
     return text
 
-def _quick_sketch_score(isabelle, session_id: str, outline_text: str) -> int:
+def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout_s: int = 5, trace: bool = False) -> int:
+    """
+    Returns number of remaining subgoals, 0 if complete, or 9999 on error.
+    Reads directly from the FINISHED response rather than print_state.
+    """
     try:
-        thy = build_theory(outline_text.splitlines(), add_print_state=True, end_with="sorry")
-        resps = run_theory(isabelle, session_id, thy)
-        block = last_print_state_block(resps) or ""
-        n = parse_subgoals(block)
-        return int(n) if isinstance(n, int) else 9999
-    except Exception:
+        thy = build_theory(outline_text.splitlines(), add_print_state=False, end_with=None)
+        if trace:
+            print(f"[Skeleton] theory:\n{thy}", flush=True)
+
+        resps = run_theory(isabelle, session_id, thy, timeout_s=timeout_s)
+        if not resps:
+            if trace:
+                print(f"[Skeleton] no responses from run_theory", flush=True)
+            return 9999
+        if trace:
+            print(f"[Skeleton] resps: {resps}", flush=True)
+
+        for r in reversed(resps):
+            if _normalize_type(_get_field(r, ("response_type", "type", "kind", "tag", "name"))) != "FINISHED":
+                continue
+            obj = _decode_body_to_dict(_get_field(r, ("response_body", "body", "message", "payload")))
+            if not isinstance(obj, dict):
+                if trace:
+                    print(f"[Skeleton] FINISHED body not a dict: {str(obj)[:100]}", flush=True)
+                continue
+            if obj.get("ok") is True:
+                if trace:
+                    print(f"[Skeleton] proof complete (ok=true) → score 0", flush=True)
+                return 0
+            nodes = obj.get("nodes") or []
+            for node in nodes:
+                for msg in (node.get("messages") or []):
+                    text = str(msg.get("message", ""))
+                    if "goal (" in text or "subgoal" in text:
+                        n = parse_subgoals(text)
+                        if trace:
+                            print(f"[Skeleton] found goal text, parse_subgoals={n!r}, text={text[:100]!r}", flush=True)
+                        if isinstance(n, int):
+                            return n
+            sorry_count = len(find_sorry_spans(outline_text))
+            if trace:
+                print(f"[Skeleton] ok=false, no goal text → sorry count={sorry_count} as proxy", flush=True)
+            return sorry_count
+
+        if trace:
+            print(f"[Skeleton] no FINISHED response in {len(resps)} responses", flush=True)
+        return 9999
+
+    except Exception as e:
+        if trace:
+            print(f"[Skeleton] FAILED: {type(e).__name__}: {e}", flush=True)
         return 9999
 
 def _state_block_for_goal(isabelle, session_id: str, goal: str) -> str:
@@ -600,11 +746,17 @@ def propose_isar_skeleton(
     *,
     force_outline: bool = False,
     hints: Optional[List[str]] = None,
+    trace: bool = False,
 ) -> Skeleton:
     # Inject tiny hint list when available (keeps default behavior if None/empty)
     prompt = SKELETON_PROMPT.format(goal=goal)
     if hints:
         prompt += "\nHINTS: Prefer using " + ", ".join(sorted(set(hints))) + " if applicable.\n"
+    if trace:
+        print(
+            f"[Skeleton] skeleton candidate 1/1: temp={temp} timeout={OLLAMA_TIMEOUT_S}s",
+            flush=True,
+        )
     raw = _generate_simple(
         prompt=prompt,
         model=model or DEFAULT_MODEL,
@@ -614,6 +766,9 @@ def propose_isar_skeleton(
     cleaned = _sanitize_outline(raw, goal=goal, force_outline=force_outline)
     return Skeleton(text=cleaned, holes=find_sorry_spans(cleaned))
 
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+import threading
+
 def propose_isar_skeletons(
     goal: str,
     *,
@@ -622,30 +777,135 @@ def propose_isar_skeletons(
     k: Optional[int] = None,
     force_outline: bool = False,
     hints: Optional[List[str]] = None,
+    timeout_s: Optional[int] = None,    # Fix 2
+    trace: bool = False,
 ) -> List[Skeleton]:
-    seen, out = set(), []
-    for t in temps:
+    temps_list = list(temps)[:k] if k else list(temps)
+    n_calls = len(temps_list)
+
+    # For API models: parallel. For local: sequential.
+    is_api_model = model and (
+        model.startswith("gemini:") or model.startswith("hf:")
+    )
+
+    if not is_api_model or n_calls == 1:
+        # Original sequential path — safe for Ollama
+        deadline = (time.monotonic() + float(timeout_s)) if timeout_s else None
+        seen, out = set(), []
+        for i, t in enumerate(temps_list):
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 1.0:
+                    break
+                calls_left = max(1, n_calls - i)
+                per_call_timeout = max(1, int(remaining / calls_left))
+            else:
+                per_call_timeout = OLLAMA_TIMEOUT_S
+            if trace:
+                print(
+                    f"[Skeleton] skeleton candidate {i + 1}/{n_calls}: "
+                    f"temp={t} timeout={per_call_timeout}s",
+                    flush=True,
+                )
+            prompt = SKELETON_PROMPT.format(goal=goal)
+            if hints:
+                prompt += "\nHINTS: Prefer using " + \
+                          ", ".join(sorted(set(hints))) + " if applicable.\n"
+            try:
+                raw = _generate_simple(prompt=prompt, model=model or DEFAULT_MODEL,
+                                       temperature=float(t), timeout_s=per_call_timeout)
+            except Exception as e:
+                if trace:
+                    print(f"[Skeleton] call at temp={t} failed: {type(e).__name__}: {e}", flush=True)
+                continue
+            if trace:
+                print(
+                    f"[Skeleton] candidate {i + 1}/{n_calls}: LLM returned {len(raw or '')} chars; sanitizing...",
+                    flush=True,
+                )
+            # #Fix: The inter-request sleep for Gemini is already applied inside
+            # #Fix: _generate_simple after every gemini: call, so no extra sleep needed here.
+            cleaned = _sanitize_outline(raw, goal=goal,
+                                                  force_outline=force_outline)
+            sk = Skeleton(text=cleaned, holes=[])
+            sk.holes = find_sorry_spans(sk.text)
+            if sk.text.strip() not in seen:
+                seen.add(sk.text.strip())
+                out.append(sk)
+                if trace:
+                    print(
+                        f"[Skeleton] candidate {i + 1}/{n_calls}: kept outline "
+                        f"({len(sk.text)} chars, {len(sk.holes)} sorry holes)",
+                        flush=True,
+                    )
+            elif trace:
+                print(f"[Skeleton] candidate {i + 1}/{n_calls}: duplicate outline skipped", flush=True)
+            if k is not None and len(out) >= int(k):
+                break
+        if out:
+            if trace:
+                print(f"[Skeleton] collected {len(out)} unique skeleton candidate(s)", flush=True)
+            return out
+        fallback = f'lemma "{goal}"\n  sorry\n'
+        if trace:
+            print("[Skeleton] no usable skeleton candidates; using minimal sorry outline", flush=True)
+        return [Skeleton(text=fallback, holes=find_sorry_spans(fallback))]
+
+    # API parallel path
+    # Each worker gets the full timeout — they run concurrently so wall-clock ~= one call
+    per_call_timeout = max(1, int((timeout_s or OLLAMA_TIMEOUT_S) * 0.85))
+    results = {}
+    errors = {}
+    lock = threading.Lock()
+
+    def _one_call(i, t):
+        if trace:
+            print(
+                f"[Skeleton] skeleton candidate {i + 1}/{n_calls}: "
+                f"temp={t} timeout={per_call_timeout}s",
+                flush=True,
+            )
         prompt = SKELETON_PROMPT.format(goal=goal)
         if hints:
-            prompt += "\nHINTS: Prefer using " + ", ".join(sorted(set(hints))) + " if applicable.\n"
-        raw = _generate_simple(
-            prompt=prompt,
-            model=model or DEFAULT_MODEL,
-            temperature=float(t),
-            timeout_s=OLLAMA_TIMEOUT_S,
-        )
-        sk = Skeleton(text=_sanitize_outline(raw, goal=goal, force_outline=force_outline),
-                      holes=[])
-        sk.holes = find_sorry_spans(sk.text)
-        key = sk.text.strip()
-        if key not in seen:
-            seen.add(key)
-            out.append(sk)
-        if k is not None and len(out) >= int(k):
-            break
-    if not out:
-        return [propose_isar_skeleton(goal, model=model, temp=0.3, force_outline=force_outline, hints=hints)]
-    return out
+            prompt += "\nHINTS: Prefer using " + \
+                      ", ".join(sorted(set(hints))) + " if applicable.\n"
+        try:
+            raw = _generate_simple(prompt=prompt, model=model or DEFAULT_MODEL,
+                                   temperature=float(t), timeout_s=per_call_timeout)
+            sk = Skeleton(text=_sanitize_outline(raw, goal=goal,
+                                                  force_outline=force_outline), holes=[])
+            sk.holes = find_sorry_spans(sk.text)
+            with lock:
+                results[t] = sk
+        except Exception as e:
+            with lock:
+                errors[t] = f"{type(e).__name__}: {e}"
+
+    with ThreadPoolExecutor(max_workers=n_calls) as ex:
+        futures = [ex.submit(_one_call, i, t) for i, t in enumerate(temps_list)]
+        # Wait with hard deadline — don't hang forever
+        wait(futures, timeout=per_call_timeout + 3)
+        # Futures still running after timeout are abandoned (can't kill, but
+        # they'll timeout on their own HTTP call within per_call_timeout)
+
+    # Log any failures explicitly — addresses the hidden failure concern
+    for t, err in errors.items():
+        print(f"[Skeleton] temp={t} failed: {err}", flush=True)
+
+    # Restore deterministic order by temperature
+    seen, out = set(), []
+    for t in temps_list:
+        if t in results:
+            sk = results[t]
+            if sk.text.strip() not in seen:
+                seen.add(sk.text.strip())
+                out.append(sk)
+
+    if out:
+        return out
+    fallback = f'lemma "{goal}"\n  sorry\n'
+    return [Skeleton(text=fallback, holes=find_sorry_spans(fallback))]
+
 
 def _lib_templates_for_goal(goal: str) -> List[Skeleton]:
     toks = _tokenize_goal(goal)
@@ -721,12 +981,16 @@ def propose_isar_skeleton_diverse_best(
     # NEW: hint lexicon
     hintlex_path: Optional[str] = None,
     hintlex_top: int = 8,
+    timeout_s: Optional[int] = None,    # Fix 2
+    trace: bool = False,
 ) -> Tuple[Skeleton, Dict[str, Any]]:
     """
     Generate K outlines, optionally inject context & hintlex hints, run one-shot sketch checks,
     and return the best using composite score:
       score = alpha * subgoals + beta * pattern_penalty - gamma * hint_bonus
     """
+    deadline = (time.monotonic() + float(timeout_s)) if timeout_s is not None else None
+
     # Optional context hints from Isabelle state + hint lexicon
     rec_hints: List[str] = []
     if context_hints:
@@ -738,8 +1002,18 @@ def propose_isar_skeleton_diverse_best(
     rec_hints = list(dict.fromkeys(rec_hints))[:12]  # stable de-dup + cap
 
     # Outline candidates (LLM) + optional library templates
-    cands = propose_isar_skeletons(goal, model=model, temps=temps, k=k,
-                                   force_outline=force_outline, hints=rec_hints)
+    llm_timeout_s = timeout_s
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        llm_timeout_s = max(1, int(remaining)) if remaining > 1.0 else 0
+
+    if llm_timeout_s == 0:
+        fallback = f'lemma "{goal}"\n  sorry\n'
+        cands = [Skeleton(text=fallback, holes=find_sorry_spans(fallback))]
+    else:
+        cands = propose_isar_skeletons(goal, model=model, temps=temps, k=k,
+                                       force_outline=force_outline, hints=rec_hints,
+                                       timeout_s=llm_timeout_s, trace=trace)    # Fix 2
     if lib_templates:
         cands = _lib_templates_for_goal(goal) + cands
 
@@ -748,14 +1022,47 @@ def propose_isar_skeleton_diverse_best(
 
     scored: List[Tuple[float, int, int]] = []  # (score, n_subgoals, idx)
     for i, sk in enumerate(cands):
-        n = _quick_sketch_score(isabelle, session_id, sk.text)
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            candidates_left = max(1, len(cands) - i)
+            score_timeout = max(1, int(remaining / candidates_left)) if remaining > 1.0 else 0
+        else:
+            score_timeout = 5
+
+        if trace:
+            if score_timeout > 0:
+                print(
+                    f"[Skeleton] scoring candidate {i + 1}/{len(cands)} "
+                    f"({len(sk.text)} chars, {len(sk.holes)} sorry holes, timeout={score_timeout}s)...",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[Skeleton] scoring candidate {i + 1}/{len(cands)} skipped: no skeleton budget left",
+                    flush=True,
+                )
+
+        if score_timeout > 0:
+            n = (_quick_sketch_score(isabelle, session_id, sk.text, timeout_s=score_timeout, trace=trace))
+            if trace:
+                print(f"[Skeleton] _quick_sketch_score returned: {n}")
+        else:
+            n = (9999)
+            if trace:
+                print(f"[Skeleton] skipped _quick_sketch_score because score_timeout>0; using default score")
+
+        if trace:
+            print(f"[Skeleton] scored candidate {i + 1}/{len(cands)}: subgoals={n}", flush=True)
+        sorry_count = len(sk.holes)    # Fix: added sorry-count tiebreaker in scoring
         pat_pen = _pattern_penalty(goal, sk.text, rules)
         hint_b = _hint_bonus_from_outline(sk.text, rec_hints)
         score = alpha * float(n) + beta * float(pat_pen) - gamma * float(hint_b)
-        scored.append((score, n, i))
+        scored.append((score, sorry_count, n, i))    # Fix: added sorry_count
 
-    scored.sort(key=lambda x: (x[0], x[1], x[2]))
-    best = cands[scored[0][2]]
+    scored.sort(key=lambda x: (x[0], x[1], x[2], x[3]))    # Fix: added sorting by sorry_count
+    best = cands[scored[0][3]]    # Fix: changed index from [2] to [3]
+    if trace:
+        print(f"[Skeleton] selected candidate {scored[0][3] + 1}/{len(cands)}", flush=True)
     diag = {
         "scores": scored,
         "num_candidates": len(cands),

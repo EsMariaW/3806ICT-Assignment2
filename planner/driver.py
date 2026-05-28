@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import re
 import os
+import json
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
@@ -11,7 +12,7 @@ import hashlib
 from planner.skeleton import (
     Skeleton, find_sorry_spans, propose_isar_skeleton, propose_isar_skeleton_diverse_best,
 )
-from planner.repair import try_cegis_repairs, regenerate_whole_proof, _APPLY_OR_BY as _TACTIC_LINE_RE
+from planner.repair import try_cegis_repairs, regenerate_whole_proof, pop_false_subgoal_lines, _APPLY_OR_BY as _TACTIC_LINE_RE
 from prover.config import ISABELLE_SESSION
 from prover.isabelle_api import (
     build_theory, get_isabelle_client, last_print_state_block, start_isabelle_server,
@@ -39,16 +40,18 @@ class PlanAndFillResult:
     outline: str
     fills: List[str]
     failed_holes: List[int]
-
+    # Optional classification tag. None for normal pass/fail; "malformed" when the
+    # goal statement itself fails to parse in Isabelle (not a prover failure).
+    status: Optional[str] = None
 
 # ============================================================================
 # Hole Filling
 # ============================================================================
 
-def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int, int], 
+def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int, int],
                   goal_text: str, model: Optional[str], per_hole_timeout: int, *, trace: bool = False) -> Tuple[str, bool, str]:
     """Fill single hole in proof."""
-    
+
     # Check for stale hole
     try:
         s_line_start = full_text.rfind("\n", 0, hole_span[0]) + 1
@@ -57,23 +60,23 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
         prev_line = full_text[prev_prev_nl:prev_line_end+1]
     except Exception:
         prev_line = ""
-    
-    if (_INLINE_BY_TAIL.search(prev_line) or _TACTIC_LINE_RE.match(prev_line) or 
+
+    if (_INLINE_BY_TAIL.search(prev_line) or _TACTIC_LINE_RE.match(prev_line) or
         prev_line.strip() in {"done", "."}):
         s, e = hole_span
         return full_text[:s] + "\n" + full_text[e:], True, "(stale-hole)"
-    
+
     state_block = _print_state_before_hole(isabelle, session, full_text, hole_span, trace)
     _log_state_block("fill", state_block, trace=trace)
-    
+
     # orig_goal = _original_goal_from_state(state_block)
     eff_goal = _effective_goal_from_state(state_block, goal_text, full_text, hole_span, trace)
-    
+
     # if trace:
     #     # if orig_goal:
     #     #     print(f"[fill] Original goal: {orig_goal}")
     #     print(f"[fill] Effective goal: {eff_goal}")
-    
+
     res = prove_goal(
         isabelle, session, eff_goal, model_name_or_ensemble=model,
         beam_w=3, max_depth=6, hint_lemmas=6, timeout=per_hole_timeout,
@@ -84,7 +87,7 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
         do_variants=False, variant_timeout=6, variant_tries=24,
         enable_reranker=True, initial_state_hint=state_block,
     )
-    
+
     steps = [str(s) for s in res.get("steps", [])]
 
     # Fallbacks: some backends return finishers/applies in separate keys
@@ -116,18 +119,18 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
     # If neither steps nor recognized finishers were returned, report no-steps
     if not (applies or fin):
         return full_text, False, "no-steps"
-    
+
     # Handle finisher
     if fin:
         script_lines = applies + [fin]
         insert = "\n  " + "\n  ".join(script_lines) + "\n"
         s, e = hole_span
         new_text = full_text[:s] + insert + full_text[e:]
-        
+
         if _verify_full_proof(isabelle, session, new_text):
             return new_text, True, "\n".join(script_lines)
         return full_text, False, "finisher-unverified"
-    
+
     # Handle apply-only  (NEVER mark success for apply-only scripts)
     if applies:
         # Decide if the hole sits under a have/show/obtain head; if so, we must NOT
@@ -161,7 +164,7 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
             # Non have/show context — keep existing behaviour (insert above, keep sorry)
             probe_text = _insert_above_hole_keep_sorry(full_text, hole_span, dedup)
             return probe_text, False, "\n".join(dedup)
-    
+
     return full_text, False, "no-tactics"
 
 
@@ -190,12 +193,12 @@ def _proof_bounds_top_level(text: str) -> Optional[Tuple[int, int]]:
     qed_matches = list(re.finditer(r"(?m)^\s*qed\b", text))
     if not qed_matches:
         return None
-    
+
     end = qed_matches[-1].end()
     proof_matches = list(re.finditer(r"(?m)^\s*proof\b.*$", text[:qed_matches[-1].start()]))
     if not proof_matches:
         return None
-    
+
     return (proof_matches[-1].start(), end)
 
 
@@ -204,17 +207,17 @@ def _tactic_spans_topdown(text: str) -> List[Tuple[int, int]]:
     bounds = _proof_bounds_top_level(text)
     if not bounds:
         return []
-    
+
     b0, b1 = bounds
     seg = text[b0:b1]
     lines = seg.splitlines(True)
     spans, off = [], b0
-    
+
     for line in lines:
         if _TACTIC_LINE_RE.match(line or "") or _INLINE_BY_TAIL.search(line or ""):
             spans.append((off, off + len(line.rstrip("\n"))))
         off += len(line)
-    
+
     return spans
 
 def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model: Optional[str],
@@ -298,16 +301,35 @@ def _quick_state_and_errors(isabelle, session: str, text: str, *, timeout_s: Opt
             state = ""
 
         # Normalize messages to strings for simple scanning
+        # Fix: handle non-string
+        errs = []
         if isinstance(out, (list, tuple)):
-            msgs = [str(m) for m in out]
+            for m in out:
+                # Extract response_body if it's an Isabelle response object
+                msgs = getattr(m, "response_body", None)
+                if msgs is None:
+                    msgs = str(m)
+                if isinstance(msgs, (bytes, bytearray)):
+                    msgs = msgs.decode(errors="replace")
+                elif not isinstance(msgs, str):
+                    msgs = str(msgs)
+                if any(tok in msgs.lower() for tok in ("error", "exception", "failed")):
+                    errs.append(msgs)
         else:
-            msgs = [str(out)]
+            msgs = str(out)
+            if any(tok in msgs.lower() for tok in ("error", "exception", "failed")):
+                errs.append(msgs)
 
-        errs = [m for m in msgs if any(tok in m.lower() for tok in ("error", "exception", "failed"))]
+        # original:
+        # if isinstance(out, (list, tuple)):
+        #     msgs = [str(m) for m in out]
+        # else:
+        #     msgs = [str(out)]
+
         return state, errs
     except Exception as ex:
         return "", [str(ex)]
-    
+
 def _extract_error_lines(errs: List[str]) -> List[int]:
     """Extract 1-based line numbers from Isabelle error messages (best-effort)."""
     if not errs:
@@ -403,14 +425,14 @@ def plan_outline(goal: str, *, model: Optional[str] = None, outline_k: Optional[
     server_info, proc = start_isabelle_server(name="planner", log_file="logs/planner_ui.log")
     isa = get_isabelle_client(server_info)
     session = isa.session_start(session=ISABELLE_SESSION)
-    
+
     try:
         if legacy_single_outline:
             return propose_isar_skeleton(goal, model=model, temp=0.35, force_outline=True).text
-        
+
         temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
         k = int(outline_k) if outline_k is not None else 3
-        
+
         best, _ = propose_isar_skeleton_diverse_best(
             goal, isabelle=isa, session_id=session, model=model, temps=temps, k=k,
             force_outline=True, priors_path=priors_path, context_hints=context_hints,
@@ -421,6 +443,186 @@ def plan_outline(goal: str, *, model: Optional[str] = None, outline_k: Optional[
     finally:
         _cleanup_resources(isa, proc)
 
+_IDENT_RE = re.compile(r"\b([a-z][a-zA-Z0-9_']*)\b")
+# Tokens that are function/keyword/predicate names, not induction-variable candidates.
+_NON_VAR_TOKENS = frozenset({
+    "rev", "map", "filter", "set", "length", "take", "drop", "id", "fold", "foldr", "foldl",
+    "hd", "tl", "last", "butlast", "concat", "zip", "sum", "size", "of", "the", "case",
+    "if", "then", "else", "let", "in", "True", "False", "Nil", "Cons", "None", "Some",
+    "distinct", "sorted", "insort", "remdups", "replicate", "nth", "list", "nat",
+    # set/function predicates that look like lowercase idents but are never induction vars
+    "inj_on", "inj", "surj", "bij", "finite", "infinite", "card", "image", "range",
+    "dom", "ran", "comp", "fst", "snd", "min", "max", "abs", "gcd", "lcm",
+})
+
+def _candidate_induction_vars(goal: str) -> List[str]:
+    """Heuristically pick variables to try induction on, in priority order.
+
+    Only returns identifiers that plausibly denote an inductive *value* (a list,
+    nat, etc.) — NOT function/predicate names. We exclude (a) known function/
+    predicate tokens, and (b) any identifier that is immediately *applied* to an
+    argument in the goal (e.g. the `f` in `f A`, or `p` in `p x`), since inducting
+    on a function symbol is always useless and just wastes Isabelle calls.
+    De-duplicated, order-preserving, capped.
+    """
+    # Identifiers that are applied to an ARGUMENT (followed by '(' or another
+    # lowercase identifier) — these are functions/predicates, not induction targets.
+    # We deliberately do NOT count operators (@, =, ∪, etc.) as application, so a
+    # list var like the `xs` in `xs @ ys` is still treated as an induction candidate.
+    applied = set(re.findall(r"\b([a-z][a-zA-Z0-9_']*)\s+(?:\(|[a-z])", goal))
+    seen: List[str] = []
+    for m in _IDENT_RE.finditer(goal):
+        tok = m.group(1)
+        if tok in _NON_VAR_TOKENS:
+            continue
+        if tok in applied:
+            # Looks like it's applied as a function — skip as an induction var.
+            # (Cheap heuristic; a wrong skip just means we miss one induct attempt.)
+            continue
+        if tok not in seen:
+            seen.append(tok)
+    # Common convention: xs/ys/zs are the usual list vars; float those first.
+    seen.sort(key=lambda v: (0 if v in ("xs", "ys", "zs", "as", "bs", "n", "m") else 1))
+    return seen[:2]  # cap: at most 2 induction vars to keep overhead low
+
+_PARSE_ERR_MARKERS = (
+    "inner syntax error",
+    "failed to parse",
+    "inner lexical error",
+    "bad name binding",
+    "undefined type name",
+    "type unification failed",  # statement-level type errors (e.g. ill-typed prop)
+)
+
+def _goal_parses(isabelle, session: str, goal: str) -> Tuple[bool, str]:
+    """Check whether the GOAL STATEMENT itself is a well-formed Isabelle prop.
+
+    Submits `lemma "{goal}" oops` — `oops` makes Isabelle parse and typecheck the
+    statement, then abandon the (unproved) goal cleanly. We deliberately test the
+    statement *in isolation* with no model-generated proof body, so any parse/lexical/
+    type error can only come from the statement. This separates MALFORMED goals
+    (the dataset's fault — not a valid proposition) from genuine prover FAILures.
+
+    Returns (ok, detail): ok=True if the statement parses & typechecks; otherwise
+    ok=False with a short detail string for logging.
+    """
+    try:
+        thy = build_theory([f'lemma "{goal}"', "oops"], add_print_state=False, end_with=None)
+        resps = _run_theory_with_timeout(isabelle, session, thy, timeout_s=20)
+    except (TimeoutError, _FuturesTimeout, ValueError):
+        # Inconclusive (timeout/exec error) — treat as parses=True so we DON'T
+        # mislabel a slow-but-valid goal as malformed. Better to attempt the proof.
+        return True, "(parse-check inconclusive: timeout)"
+    except Exception as ex:
+        return True, f"(parse-check inconclusive: {type(ex).__name__})"
+
+    # Scan response bodies for statement-level parse/type errors.
+    for r in (resps or []):
+        body = getattr(r, "response_body", None)
+        if isinstance(body, (bytes, bytearray)):
+            body = body.decode("utf-8", "replace")
+        text = ""
+        if isinstance(body, str):
+            text = body
+        elif isinstance(body, dict):
+            text = json.dumps(body)
+        low = text.lower()
+        if '"kind":"error"' in low or "error" in low:
+            for marker in _PARSE_ERR_MARKERS:
+                if marker in low:
+                    return False, marker
+    return True, "ok"
+
+def _try_direct_finishers(isabelle, session: str, goal: str, left_s, trace: bool) -> Optional[str]:
+    """Try a sequence of deterministic one-line finishers on the whole goal.
+
+    Returns the full verified proof text (lemma + finisher) on the first finisher
+    that checks, else None. Each attempt is a single Isabelle verification with no
+    LLM involvement, so this is cheap relative to skeleton generation.
+
+    Ordering: cheapest/most-likely first (simp, auto), then induction variants
+    (which close most structural list/nat lemmas), then the heavier classical
+    tactics (blast, fastforce) for first-order/propositional goals.
+    """
+    vars_ = _candidate_induction_vars(goal)
+    # Cheap, high-yield tactics first; bail as soon as one closes the goal.
+    finishers: List[str] = ["by simp", "by auto"]
+    for v in vars_:
+        finishers.append(f"by (induct {v}) auto")
+        finishers.append(f"by (induct {v}) simp_all")
+    # blast is cheap enough to keep in the default set (closes most propositional/FO goals).
+    finishers.append("by blast")
+    # Heavy combinatorial finishers are expensive and rarely succeed where the above
+    # all failed; only attempt them when explicitly enabled for hard-goal runs.
+    if os.getenv("FASTPATH_HEAVY", "").strip().lower() in ("1", "true", "yes", "on"):
+        finishers += ["by fastforce", "by force", "by (simp add: algebra_simps)", "by (metis)"]
+
+    for fin in finishers:
+        # Respect the wall-clock budget; leave room for the skeleton fallback.
+        if left_s() <= 8.0:
+            if trace:
+                print("[fastpath] Time budget low; stopping finisher attempts early.")
+            break
+        candidate = f'lemma "{goal}"\n  {fin}\n'
+        try:
+            ok = _verify_full_proof(isabelle, session, candidate)
+        except (TimeoutError, _FuturesTimeout, ValueError):
+            ok = False
+        except Exception:
+            ok = False
+        if trace:
+            print(f"[fastpath] {fin:32s} -> {'OK' if ok else 'x'}")
+        if ok:
+            return candidate
+    return None
+
+def _syntax_fix_is_safe(original: str, fixed: str) -> bool:
+    """
+    Check that the LLM syntax fix only changed parentheses, dots, and spacing.
+    Verifies that:
+    1. No tokens were added or removed
+    2. The order of tokens is preserved
+    3. No connectives or quantifiers were added/changed
+    """
+    # Tokens that must never be added or removed
+    _LOGICAL_TOKENS = {
+        '∀', '∃', '¬', '∧', '∨', '⟶', '⟷', '⟹', '=', '≠',
+        '≤', '≥', '<', '>', '+', '-', '*', '/', 'λ',
+        # ASCII equivalents
+        'ALL', 'EX', 'NOT', 'AND', 'OR',
+    }
+
+    def _extract_tokens(s: str) -> List[str]:
+        """Extract logical tokens in order, ignoring parens/dots/spaces."""
+        # Remove only parentheses, dots used as quantifier separators, and whitespace
+        s = re.sub(r'\(|\)', ' ', s)   # remove parens
+        s = re.sub(r'(?<=\w)\.(?=\s)', ' ', s)  # remove dots after quantifier vars
+        s = re.sub(r'\s+', ' ', s).strip()
+        return s.split()
+
+    orig_tokens = _extract_tokens(original)
+    fixed_tokens = _extract_tokens(fixed)
+
+    # Check 1: same length — no tokens added or removed
+    if len(orig_tokens) != len(fixed_tokens):
+        return False
+
+    # Check 2: same order — every token matches positionally
+    for o, f in zip(orig_tokens, fixed_tokens):
+        if o != f:
+            return False
+
+    # Check 3: no new logical connectives or quantifiers in fixed
+    # (catches cases where order check passes but connective was substituted)
+    orig_set = set(orig_tokens)
+    fixed_set = set(fixed_tokens)
+    new_logical = (fixed_set - orig_set) & _LOGICAL_TOKENS
+    if new_logical:
+        return False
+
+    return True
+
+# NOTE 1.1: Input Goal (Main entry point for program)
 def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *, mode: str = "auto",
                  outline_k: Optional[int] = None, outline_temps: Optional[Iterable[float]] = None,
                  legacy_single_outline: bool = False, repairs: bool = True,
@@ -439,12 +641,18 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
     if repair_trace and not trace:
         trace = True
 
+    # Start up an Isabelle server and session for this planning/filling attempt
     server_info, proc = start_isabelle_server(name="planner", log_file="logs/planner_ui.log")
     isa = get_isabelle_client(server_info)
     session = isa.session_start(session=ISABELLE_SESSION)
 
+    # Timer
     t0 = time.monotonic()
     left_s = lambda: max(0.0, timeout - (time.monotonic() - t0))
+
+    # Fix 2: explicitly split time between skeleton generation and repair
+    _skeleton_budget_s = min(timeout * 0.4, 45.0)
+    _repair_reserve_s = max(timeout * 0.6, timeout - 45.0)
 
     restart_count = 0
 
@@ -454,7 +662,7 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
             return
         restart_count += 1
         if trace:
-            msg = f"[planner] Restarting Isabelle (#{restart_count}) due to {reason}"
+            msg = f"[Driver] Restarting Isabelle (#{restart_count}) due to {reason}"
             if ex is not None:
                 msg += f": {type(ex).__name__}: {ex}"
             print(msg)
@@ -468,82 +676,382 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
         isa, session, proc = isa2, session2, proc2
 
     try:
+        # NOTE 1.2: Verify goal string correctness
+        # attempted fix workflow:
+        # goal string
+        # → regex fixes (fast, free)
+        # → _goal_parses() check
+        #     → parses? → continue normally
+        #     → fails? → LLM fix attempt (costs 1 API call, ~5s)
+        #         → _goal_parses() check on fixed goal
+        #             → parses? → use fixed goal, continue
+        #             → fails? → discard, return MALFORMED
+
+        # attempt to fix syntactical error
+        # fix negation: from ¬A to (¬A)
+        goal = re.sub(
+            r'¬\s*([A-Za-z][A-Za-z0-9_]*\s*\([^)]*\)|[A-Za-z][A-Za-z0-9_]*)',
+            r'(¬\1)',
+            goal
+        )
+        # fix universal quantifier: from ∀y. P y to (∀y. P y)
+        goal = re.sub(
+            r'(∀\s*[A-Za-z][A-Za-z0-9_]*\s*\.\s*[^⟷⟶∧∨⟹]+?)(?=⟷|⟶|∧|∨|⟹|$)',
+            r'(\1)',
+            goal
+        )
+        # fix existential quantifier: from ∃z. P z to (∃z. P z)
+        goal = re.sub(
+            r'(∃\s*[A-Za-z][A-Za-z0-9_]*\s*\.\s*[^⟷⟶∧∨⟹]+?)(?=⟷|⟶|∧|∨|⟹|$)',
+            r'(\1)',
+            goal
+        )
+        # fix double-parenthesisation
+        goal = re.sub(r'\(\(([^()]+)\)\)', r'(\1)', goal)
+
+        # -------------------------------------------------------------------
+        # PRE-VALIDATION: is the goal statement even a well-formed proposition?
+        # A parse/type error on the *statement* (as opposed to during a proof)
+        # means the goal is malformed input — not something the prover can or
+        # should attempt. We classify it as MALFORMED and return early, so it
+        # doesn't burn the fast-path / skeleton / repair budget and doesn't get
+        # counted as a genuine prover FAIL in benchmarks.
+        # Skippable via PARSECHECK_OFF=1.
+        # PRE-VALIDATION: check if goal parses
+        if os.getenv("PARSECHECK_OFF", "").strip().lower() not in ("1", "true", "yes", "on"):
+            ok, detail = _goal_parses(isa, session, goal)
+
+            # If regex fixes weren't enough, try LLM syntax fix
+            if not ok and model and left_s() > 10.0:
+                if trace:
+                    print(f"[Driver] Goal does not parse after regex fixes ({detail}); "
+                          f"attempting LLM syntax fix...")
+                try:
+                    from planner.skeleton import _generate_simple
+                    fix_prompt = f"""You are an Isabelle/HOL expert. The following goal statement has a syntax error and cannot be parsed by Isabelle.
+
+ORIGINAL GOAL:
+{goal}
+
+ISABELLE ERROR:
+{detail}
+STRICT RULES — you must follow ALL of these:
+- Fix ONLY the syntax error so that Isabelle can parse it as a proposition; nothing else
+- Do NOT add, remove, or change any logical connectives (∧ ∀ ∃ ⟶ ⟷ ¬ etc.)
+- Do NOT add, remove, or change any variables, predicates, or constants
+- Do NOT change the mathematical meaning in any way
+- Only allowed changes: add/remove parentheses, add missing dots after quantifiers, fix spacing
+- If you cannot fix it with only these changes, return the original unchanged
+
+Return ONLY the corrected goal statement (no lemma keyword, no proof, no quotes, no explanation).
+
+Example input:  ¬ ∃x. P x ⟷ ∀x. ¬ P x
+Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
+"""
+                    fixed_goal = _generate_simple(
+                        fix_prompt, model=model, timeout_s=min(20, int(left_s() * 0.3))
+                    ).strip().strip('"')
+
+                    if fixed_goal:
+                        # Guard: verify the fix didn't add/remove logical content
+                        if _syntax_fix_is_safe(goal, fixed_goal):
+                            ok2, detail2 = _goal_parses(isa, session, fixed_goal)
+                            if ok2:
+                                if trace:
+                                    print(f"[Driver] LLM syntax fix succeeded: {fixed_goal!r}")
+                                goal = fixed_goal  # accept the fix, continue normally
+                                ok = True
+                            else:
+                                if trace:
+                                    print(f"[Driver] LLM syntax fix did not parse either "
+                                        f"({detail2}); discarding, flagging as MALFORMED.")
+                        else:
+                            if trace:
+                                print(f"[Driver] LLM syntax fix rejected — changed logical content; discarding.")
+                except Exception as e:
+                    if trace:
+                        print(f"[Driver] LLM syntax fix attempt failed: {type(e).__name__}: {e}")
+
+            if not ok:
+                if trace:
+                    print(f"[Driver] Goal statement does NOT parse in Isabelle ({detail}); "
+                          f"flagging as MALFORMED (not a prover failure).")
+                return PlanAndFillResult(False, f'lemma "{goal}"\n  (* MALFORMED: statement failed to parse *)\n', [], [], status="malformed")
+            elif trace:
+                print("[Driver] Goal statement parses; proceeding.", flush=True)
+
+        # NOTE 1.3: Try one-line finishers on goal
+        # -------------------------------------------------------------------
+        # FAST-PATH: try a few deterministic one-line finishers on the whole
+        # goal BEFORE invoking the LLM skeleton generator.
+        #
+        # Rationale (measured): a large fraction of goals are closable by a
+        # single library tactic (simp/auto/induct+auto/blast/fastforce). The
+        # structured-skeleton path is (a) non-deterministic — the same goal can
+        # pass or fail across runs depending on which skeleton is sampled — and
+        # (b) prone to mis-encoding the proof frame on goals that need no frame
+        # at all (e.g. emitting `proof -` + `assume` for an implication, or a
+        # stray `done`). Trying finishers first converts that band of goals into
+        # a deterministic yes/no and skips the expensive LLM call entirely when
+        # one succeeds. On hard goals all finishers fail cheaply (a few seconds
+        # of Isabelle time) and we fall through to the existing skeleton path.
+        #
+        # Disabled in 'outline' mode (caller explicitly wants placeholders) and
+        # skippable via FASTPATH_OFF=1 for ablation / benchmarking.
+        if mode != "outline" and os.getenv("FASTPATH_OFF", "").strip().lower() not in ("1", "true", "yes", "on"):
+            fp_proof = _try_direct_finishers(isa, session, goal, left_s, trace)
+            if fp_proof is not None:
+                if trace:
+                    print("[Driver] Fastpath Closed by a direct finisher; skipping skeleton generation.")
+                return PlanAndFillResult(True, fp_proof, [], [])
+            elif trace:
+                print("[Driver] Fastpath failed; no direct finisher closed the goal; proceeding to skeleton.", flush=True)
+
         # Generate outline
-        if legacy_single_outline:
-            full = propose_isar_skeleton(goal, model=model, temp=0.35, force_outline=(mode == "outline")).text
+        # NOTE: 1.4 Get best proof outline from LLM
+        if legacy_single_outline: # Legacy only makes one skeleton
+            if trace:
+                print("[Driver] Generating skeleton with legacy single-outline method...", flush=True)
+            full = propose_isar_skeleton(
+                goal, model=model, temp=0.35,
+                force_outline=(mode == "outline"), trace=trace
+            ).text
+            if trace:
+                print("[Driver] Skeleton generation (legacy single outline) completed", flush=True)
+                print(full)
+                print("=" * 100 + "\n", flush=True)
+
+            # Fix 2: repair timer
+            _repair_start = time.monotonic()
+            _elapsed = _repair_start - t0
+            _remaining = max(0.0, timeout - _elapsed)
+            _minimum_repair_s = min(20.0, _remaining * 0.5)  # floor is half of what's left, max 20s
+            _repair_end = max(
+                _repair_start + _minimum_repair_s,   # floor: at least half remaining
+                min(
+                    _repair_start + _repair_reserve_s,  # preferred: full reserve
+                    t0 + timeout                          # ceiling: never exceed total
+                )
+            )
+            left_s = lambda: max(0.0, _repair_end - time.monotonic())
         else:
             temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
             k = int(outline_k) if outline_k is not None else 3
-            best, _ = propose_isar_skeleton_diverse_best(
+            if trace:
+                print(
+                    f"[Driver] Generating {k} skeleton candidates with temps {temps} "
+                    f"(budget={int(_skeleton_budget_s)}s)...",
+                    flush=True,
+                )
+            best, diag = propose_isar_skeleton_diverse_best(
                 goal, isabelle=isa, session_id=session, model=model, temps=temps, k=k,
                 force_outline=(mode == "outline"), priors_path=priors_path,
                 context_hints=context_hints, lib_templates=lib_templates,
                 alpha=alpha, beta=beta, gamma=gamma, hintlex_path=hintlex_path,
                 hintlex_top=hintlex_top,
+                timeout_s=int(_skeleton_budget_s), # Fix 2: explicitly split time between skeleton generation and repair
+                trace=trace,
             )
             full = best.text
+            if trace:
+                score, sorry_count, subgoals, _ = diag["scores"][0]
+                print(
+                    f"[Driver] Skeleton generation completed; selected score={score:.4f} "
+                    f"sorries={sorry_count} subgoals={subgoals}",
+                    flush=True,
+                )
+                print("-" * 100)
+                print("[Driver] Selected Skeleton:", flush=True)
+                print(full)
+                print("-" * 100 + "\n", flush=True)
 
+        # Fix 2: explicitly split time between skeleton generation and repair
+        # Reset the clock reference for repair/fill stage
+        # Guarantee repair gets at least _repair_reserve_s seconds
+        _repair_start = time.monotonic()
+        _repair_end = min(
+            _repair_start + _repair_reserve_s,  # guaranteed minimum
+            t0 + timeout                          # but never beyond total timeout
+        )
+        left_s = lambda: max(0.0, _repair_end - time.monotonic())
+
+        # Get location of all sorry holes in the skeleton
         spans = find_sorry_spans(full)
 
+        # Outline simply returns the created skeleton
         if mode == "outline":
             return PlanAndFillResult(True, full, [], [])
 
         # Handle complete proofs
+        # NOTE: 1.5 Run Isabelle on current proof outline if no sorries
         if not spans:
+            verify_timeout = max(1, int(min(_ISA_VERIFY_TIMEOUT_S, left_s())))
+            if trace:
+                print(
+                    f"[Driver] Skeleton came back with no 'sorry' holes; verifying as a complete proof "
+                    f"(timeout={verify_timeout}s, remaining={left_s():.1f}s)...",
+                    flush=True,
+                )
+            verified = False
+            verify_t0 = time.monotonic()
             try:
-                if _verify_full_proof(isa, session, full):
-                    return PlanAndFillResult(True, full, [], [])
+                verified = _verify_full_proof(isa, session, full, timeout_s=verify_timeout)
             except (TimeoutError, _FuturesTimeout, ValueError) as ex:
+                if trace:
+                    print(
+                        f"[Driver] Full-proof verification raised {type(ex).__name__}: {ex} "
+                        f"after {time.monotonic() - verify_t0:.1f}s",
+                        flush=True,
+                    )
                 _restart_isabelle("verify_full_proof", ex)
+            else:
+                if trace:
+                    print(
+                        f"[Driver] Full-proof verification returned {verified} "
+                        f"after {time.monotonic() - verify_t0:.1f}s",
+                        flush=True,
+                    )
 
-            if repairs and left_s() > 6.0:
+            if verified:
+                if trace:
+                    print("[Driver] Complete proof verified on first try. Done.")
+                return PlanAndFillResult(True, full, [], [])
+
+            # Verification failed — surface WHY (the Isabelle rejection) so the trace
+            # shows the actual error rather than silently moving on.
+            verify_errs: List[str] = []
+            err_timeout = max(1, int(min(15, left_s())))
+            if trace:
+                try:
+                    _, verify_errs = _quick_state_and_errors(isa, session, full, timeout_s=err_timeout)
+                    if verify_errs:
+                        print("[Driver] Complete proof FAILED verification. Isabelle reported:")
+                        for m in verify_errs[:5]:
+                            print(f"        - {str(m).strip()}")
+                    else:
+                        print("[Driver] Complete proof FAILED verification (no specific error text captured).")
+                except Exception as ex:
+                    print(f"[Driver] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}")
+            else:
+                try:
+                    _, verify_errs = _quick_state_and_errors(isa, session, full, timeout_s=err_timeout)
+                except Exception:
+                    verify_errs = []
+
+            if any("isabelle_run_timeout" in str(e) for e in verify_errs):
+                if trace:
+                    print("[Driver] Verification timed out; restarting Isabelle and retrying once...")
+                _restart_isabelle("complete proof verification timeout")
+                retry_timeout = max(1, int(min(_ISA_VERIFY_TIMEOUT_S, left_s())))
+                retry_t0 = time.monotonic()
+                try:
+                    retry_verified = _verify_full_proof(isa, session, full, timeout_s=retry_timeout)
+                    if trace:
+                        print(
+                            f"[Driver] Retry verification returned {retry_verified} "
+                            f"after {time.monotonic() - retry_t0:.1f}s "
+                            f"(timeout={retry_timeout}s)",
+                            flush=True,
+                        )
+                    if retry_verified:
+                        if trace:
+                            print("[Driver] Complete proof verified after Isabelle restart. Done.")
+                        return PlanAndFillResult(True, full, [], [])
+                except (TimeoutError, _FuturesTimeout, ValueError) as ex:
+                    if trace:
+                        print(
+                            f"[Driver] Retry verification raised {type(ex).__name__}: {ex} "
+                            f"after {time.monotonic() - retry_t0:.1f}s",
+                            flush=True,
+                        )
+
+            if repairs and left_s() > 3.0:    # Fix to match thresholds (changed from >6.0)
+                if trace:
+                    print("[Driver] Engaging top-down repair on the failed complete proof...")
                 full, ok = _repair_failed_proof_topdown(isa, session, full, goal, model, left_s, max_repairs_per_hole, trace)
                 if ok:
+                    if trace:
+                        print("[Driver] Top-down repair produced a verified proof. Done.")
                     return PlanAndFillResult(True, full, [], [])
+                if trace:
+                    print("[Driver] Top-down repair did not yield a verified proof.")
+            elif trace:
+                print("[Driver] Skipping repair (disabled or insufficient time remaining).")
 
+            if left_s() <= 3.0:
+                if trace:
+                    print("[Driver] Not localising failed proof into a sorry; insufficient time remaining.")
+                return PlanAndFillResult(False, full, [], [0])
+
+            # Attempt to localise failure and fill with a sorry
+            if trace:
+                print("[Driver] Localising failed complete proof into a sorry...")
             full2, opened = _open_minimal_sorries(isa, session, full)
             full = full2 if opened else full
             if not opened:
+                if trace:
+                    print("[Driver] Could not localise the failure into a 'sorry'; returning unverified proof as FAILED.")
                 return PlanAndFillResult(False, full, [], [0])
+            elif trace:
+                print("[Driver] Localised the failing step into a 'sorry'; entering hole-fill loop.")
 
-        # Fill holes
+        # Get the lemma line (Line starting with lemma that contains the goal)
         lemma_line = _first_lemma_line(full)
         if not lemma_line:
             return PlanAndFillResult(False, full, [], [0])
 
+        # Extract the goal text from the lemma line
         goal_text = _extract_goal_from_lemma_line(lemma_line)
-        fills: List[str] = []
-        failed: List[int] = []
-        repair_progress: dict[str, int] = {}
-        stage_tries: dict[Tuple[str, int], int] = {}
-        _skip_fill_logged_once: set[Tuple[str, int]] = set()
+        fills: List[str] = [] # Replacement fragments that filled holes
+        failed: List[int] = [] # NOTE not really used?
+        repair_progress: dict[str, int] = {} # Track repair stage per hole
+        stage_tries: dict[Tuple[str, int], int] = {} # Tracks number of repair attempts per (hole, stage)
+        _skip_fill_logged_once: set[Tuple[str, int]] = set() # For logging when we skip fill attempts due to escalating repairs
+        focused_hole_key: Optional[str] = None # Focus on a specific hole across iterations
 
-        focused_hole_key: Optional[str] = None
-
+        # Fill and repair loop
+        # NOTE: 2.1 Trigger Fill
         while "sorry" in full and left_s() > 0:
+
+            # Get sorry holes
             spans = find_sorry_spans(full)
             if not spans:
                 break
 
+            # Choose focused hole if possible, otherwise chosoe first hole
+            # NOTE not sure how stable hole idenity, changes to sournding holes can stuff it?
+            # NOTE I think more stable proof context would be better (structured lists and sublists for nesting?)
+            # NOTE Maybe better for passing stuff to the LLM too, less brittle than raw text spans?
+            # ProofBlock
+            # ├── case Nil
+            # │   └── hole A
+            # └── case Cons
+            #     ├── have f1
+            #     │   └── hole B
+            #     └── show ?case
+            #         └── hole C
+
             span = None
             if focused_hole_key is not None:
                 for s in spans:
+                    # Try to find previously used hole
                     if _hole_fingerprint(full, s) == focused_hole_key:
                         span = s
                         break
                 if span is None:
+                    # previous hole has been closed
                     if trace:
                         print(f"[fill] Focused hole @{focused_hole_key} was closed. Moving to first hole.")
                     focused_hole_key = None
 
             if span is None:
                 span = spans[0]
-
-            hole_key = _hole_fingerprint(full, span)
-            per_hole_budget = int(max(5, left_s() / max(1, len(spans))))
-            start_stage = repair_progress.get(hole_key, 0)
+            hole_key = _hole_fingerprint(full, span) # Get hole key for tracking repair progress
+            per_hole_budget = int(max(5, left_s() / max(1, len(spans))))  # How much time to spend on hole
+            start_stage = repair_progress.get(hole_key, 0) # What repair stage the current hole is in
 
             # Always try fill first unless we're in escalated repair stages
+            # NOTE: 3.1 Stage 1 Local Repair
             if start_stage == 0:
                 try:
                     full2, ok, script = _fill_one_hole(
@@ -558,6 +1066,7 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                         print(f"[fill] _fill_one_hole crashed: {type(ex).__name__}: {ex}")
                     full2, ok, script = full, False, "fill-exception"
 
+                # fill suceedes and makes verified progress: accept and continue to next hole
                 if ok and full2 != full:
                     full = full2
                     fills.append(script)
@@ -643,7 +1152,19 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                     STAGE1_CAP = 2
                     STAGE2_CAP = 3
 
-                    should_escalate = False
+                    # FALSE-SUBGOAL FAST-PATH:
+                    # If the per-line Nitpick/Quickcheck diagnostic proved that a
+                    # local obligation under this hole is FALSE, then leaf-level
+                    # tactic repair (stages 1-2) can never close it — the structure
+                    # containing that false `have` must be regenerated. Skip the
+                    # remaining caps and jump straight to whole-proof regeneration.
+                    false_lines = pop_false_subgoal_lines()
+                    force_regen = bool(false_lines)
+                    if force_regen and trace:
+                        print(f"[repair] FALSE subgoal proven at line(s) {sorted(false_lines)}; "
+                              f"skipping leaf-repair and regenerating whole proof.")
+
+                    should_escalate = force_regen
                     if start_stage == 1 and stage_tries[key] >= STAGE1_CAP:
                         should_escalate = True
                         if trace:
@@ -654,7 +1175,9 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                             print(f"[repair] Stage 2 cap ({STAGE2_CAP}) reached. Regenerating whole proof...")
 
                     if should_escalate:
-                        if start_stage < 2:
+                        # A proven-false subgoal means stage-2 leaf repair is also
+                        # futile, so force the jump to regeneration regardless of stage.
+                        if start_stage < 2 and not force_regen:
                             repair_progress[hole_key] = 2
                             focused_hole_key = hole_key
                             continue
@@ -689,7 +1212,7 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                                 goal_text, isabelle=isa, session_id=session, model=model, temps=temps, k=k,
                                 force_outline=True, priors_path=priors_path, context_hints=context_hints,
                                 lib_templates=lib_templates, alpha=alpha, beta=beta, gamma=gamma,
-                                hintlex_path=hintlex_path, hintlex_top=hintlex_top,
+                                hintlex_path=hintlex_path, hintlex_top=hintlex_top, trace=trace,
                             )
                             full = best.text
                             repair_progress.clear()

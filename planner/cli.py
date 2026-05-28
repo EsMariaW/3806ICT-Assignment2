@@ -22,6 +22,29 @@ def _parse_temps(s: Optional[str]) -> Optional[List[float]]:
     return out or None
 
 
+def _read_goals_file(path: str) -> List[str]:
+    """Read goals one-per-line as UTF-8, stripping a 'lemma \"...\"' wrapper and
+    surrounding quotes if present. Blank lines are dropped.
+
+    Reading the file here (rather than piping via the shell) keeps Unicode logic
+    symbols (∀, ∧, ∪, ⟶, …) intact — the Windows/PowerShell console pipe corrupts
+    them to '?', but an explicit UTF-8 file handle does not.
+    """
+    goals: List[str] = []
+    with open(path, "r", encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith('lemma "') and line.endswith('"'):
+                line = line[len('lemma "'):-1].strip()
+            elif line.startswith('"') and line.endswith('"') and len(line) >= 2:
+                line = line[1:-1].strip()
+            if line:
+                goals.append(line)
+    return goals
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Planner: Plan → Sketch → Fill (Isabelle/HOL)")
 
@@ -116,23 +139,45 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.set_defaults(context=True)
 
     ap.add_argument("--context-files", type=str, default="",
-                    help="Space/comma-separated .thy files to seed context (e.g., 'A.thy B.thy' or 'A.thy,B.thy').")        
+                    help="Space/comma-separated .thy files to seed context (e.g., 'A.thy B.thy' or 'A.thy,B.thy').")
+
+    # --- Batch / file input (reads UTF-8 directly, bypassing terminal encoding) ---
+    ap.add_argument("--goals-file", dest="goals_file", default=None,
+                    help="Path to a file with one lemma statement per line (UTF-8). "
+                         "Without --line, runs the whole file and prints a Success: N/M tally. "
+                         "With --line N, proves only that line (full --trace honoured).")
+    ap.add_argument("--line", dest="line_no", type=int, default=None,
+                    help="1-based line number to pick from --goals-file (proves just that one goal).")
     args = ap.parse_args(argv)
 
-    # Resolve goal: flag > positional > stdin
+    # Resolve goal: --goals-file (+ optional --line) > flag > positional > stdin
+    file_goals: List[str] = []
+    if args.goals_file:
+        try:
+            file_goals = _read_goals_file(args.goals_file)
+        except FileNotFoundError:
+            print(f"Goals file not found: {args.goals_file}", file=sys.stderr)
+            return 2
+        except Exception as ex:
+            print(f"Could not read goals file {args.goals_file}: {ex}", file=sys.stderr)
+            return 2
+        if not file_goals:
+            print(f"No goals found in {args.goals_file}.", file=sys.stderr)
+            return 2
+
     goal = args.goal_flag or args.goal_pos
-    if not goal:
+    if not goal and not args.goals_file:
         data = sys.stdin.read().strip()
         if data.startswith('lemma "') and data.endswith('"'):
             data = data[len('lemma "'): -1]
         goal = data.strip()
 
-    if not goal:
-        print("No goal provided. Use --goal '…', a positional goal, or pipe via stdin.", file=sys.stderr)
+    if not goal and not args.goals_file:
+        print("No goal provided. Use --goal '…', a positional goal, --goals-file, or pipe via stdin.", file=sys.stderr)
         return 2
-    
+
     # Apply NEW premise/context flags to the prover's live config (read inside prove_goal).
-    # The prover checks: CFG.PROVER_CONTEXT_ENABLE / CFG.PROVER_CONTEXT_FILES / CFG.PREMISES_ENABLE :contentReference[oaicite:2]{index=2}
+    # The prover checks: CFG.PROVER_CONTEXT_ENABLE / CFG.PROVER_CONTEXT_FILES / CFG.PREMISES_ENABLE
     CFG.PREMISES_ENABLE = bool(args.premises)
     CFG.PROVER_CONTEXT_ENABLE = bool(args.context)
     if args.context_files:
@@ -149,31 +194,81 @@ def main(argv: Optional[List[str]] = None) -> int:
             file=sys.stderr,
         )
 
-    res = plan_and_fill(
-        goal,
-        model=args.model,
-        timeout=args.timeout,
-        mode=args.mode,
-        outline_k=args.k if args.diverse else 1,
-        outline_temps=args.temps,
-        legacy_single_outline=(not args.diverse),
-        repairs=args.repairs,
-        max_repairs_per_hole=args.max_repairs_per_hole,
-        trace=args.trace,
-        # planner scoring/context
-        priors_path=args.priors,
-        context_hints=args.context_hints,
-        lib_templates=args.lib_templates,
-        alpha=args.alpha,
-        beta=args.beta,
-        gamma=args.gamma,
-        # hintlex
-        hintlex_path=args.hintlex,
-        hintlex_top=args.hintlex_top,
-    )
+    def _run_one(g: str, *, trace: bool):
+        return plan_and_fill(
+            g,
+            model=args.model,
+            timeout=args.timeout,
+            mode=args.mode,
+            outline_k=args.k if args.diverse else 1,
+            outline_temps=args.temps,
+            legacy_single_outline=(not args.diverse),
+            repairs=args.repairs,
+            max_repairs_per_hole=args.max_repairs_per_hole,
+            trace=trace,
+            # planner scoring/context
+            priors_path=args.priors,
+            context_hints=args.context_hints,
+            lib_templates=args.lib_templates,
+            alpha=args.alpha,
+            beta=args.beta,
+            gamma=args.gamma,
+            # hintlex
+            hintlex_path=args.hintlex,
+            hintlex_top=args.hintlex_top,
+        )
+
+    # ---- Goals-file modes ----
+    if args.goals_file:
+        # Single-pick: prove one line, full trace, print the proof like single-goal mode.
+        if args.line_no is not None:
+            if args.line_no < 1 or args.line_no > len(file_goals):
+                print(f"--line {args.line_no} out of range (file has {len(file_goals)} goals).", file=sys.stderr)
+                return 2
+            g = file_goals[args.line_no - 1]
+            res = _run_one(g, trace=args.trace)
+            print(res.outline, end="" if res.outline.endswith("\n") else "\n")
+            if getattr(res, "status", None) == "malformed":
+                print("[planner] NOTE: goal statement is MALFORMED (does not parse in Isabelle); not a prover failure.", file=sys.stderr)
+            elif not res.success:
+                print("[planner] NOTE: this proof did NOT verify (returned as a failed attempt).", file=sys.stderr)
+            return 0 if res.success else 1
+
+        # Batch: compact per-line pass/fail, then a Success: N/M tally.
+        n_ok = 0
+        n_malformed = 0
+        total = len(file_goals)
+        for i, g in enumerate(file_goals, start=1):
+            ok = False
+            malformed = False
+            try:
+                res = _run_one(g, trace=False)
+                ok = bool(res.success)
+                malformed = (getattr(res, "status", None) == "malformed")
+            except Exception as ex:
+                print(f"[{i}/{total}] CRASH  {type(ex).__name__}: {ex}", file=sys.stderr)
+            if malformed:
+                status = "MALFORMED"
+                n_malformed += 1
+            elif ok:
+                status = "PASS"
+                n_ok += 1
+            else:
+                status = "FAIL"
+            print(f"[{i}/{total}] {status:9s}  {g}", flush=True)
+        n_attempted = total - n_malformed
+        rate = (100.0 * n_ok / n_attempted) if n_attempted else 0.0
+        print(f"\nBatch done. Success: {n_ok}/{n_attempted} ({rate:.1f}%) of well-formed goals; "
+              f"{n_malformed} malformed (excluded); {total} total.", flush=True)
+        return 0 if (n_ok == n_attempted and n_attempted > 0) else 1
+
+    # ---- Single-goal mode (unchanged behaviour) ----
+    res = _run_one(goal, trace=args.trace)
     if args.trace and ("--verbose" in (argv or sys.argv) or "--repair-trace" in (argv or sys.argv)):
-        print("[planner] Note: --verbose/--repair-trace are deprecated; use --trace.", flush=True)
+        print("[Planner CLI] Note: --verbose/--repair-trace are deprecated; use --trace.", flush=True)
     print(res.outline, end="" if res.outline.endswith("\n") else "\n")
+    if not res.success:
+        print("[Planner CLI] NOTE: this proof did NOT verify (returned as a failed attempt).", file=sys.stderr)
     return 0 if res.success else 1
 
 

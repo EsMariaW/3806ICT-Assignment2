@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple, Set, Any
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 import requests
 from typing import Callable
-from planner.repair_inputs import _find_first_hole, _hole_line_bounds, _APPLY_OR_BY, _snippet_window, _clamp_line_index, _quick_state_and_errors, _extract_error_lines, _run_theory_with_timeout, _print_state_before_hole, _nearest_header, _recent_steps, _normalize_error_texts, _facts_from_state, get_counterexample_hints_for_repair, _earliest_failure_anchor
+from planner.repair_inputs import _find_first_hole, _hole_line_bounds, _APPLY_OR_BY, _snippet_window, _clamp_line_index, _quick_state_and_errors, _extract_error_lines, _run_theory_with_timeout, _print_state_before_hole, _nearest_header, _recent_steps, _normalize_error_texts, _facts_from_state, get_counterexample_hints_for_repair, _earliest_failure_anchor, _run_nitpick_at_line
 from planner.prompts import _LOCAL_SYSTEM, _LOCAL_USER, _BLOCK_SYSTEM, _BLOCK_USER
 from prover.config import MODEL as DEFAULT_MODEL, OLLAMA_HOST, TIMEOUT_S as OLLAMA_TIMEOUT_S, OLLAMA_NUM_PREDICT, TEMP as OLLAMA_TEMP, TOP_P as OLLAMA_TOP_P
 from prover.isabelle_api import build_theory, run_theory, last_print_state_block, finished_ok
@@ -19,6 +19,26 @@ _ISA_FAST_TIMEOUT_S = int(os.getenv("ISABELLE_FAST_TIMEOUT_S", "12"))
 _ISA_VERIFY_TIMEOUT_S = int(os.getenv("ISABELLE_VERIFY_TIMEOUT_S", "30"))
 _SESSION = requests.Session()
 _REPAIR_RULES_JSON = os.getenv("REPAIR_RULES_JSON", "").strip()  # optional, declarative fallback rules
+
+# #Fix: Inter-request delay (seconds) inserted after every Gemini call to avoid
+# #Fix: tripping the API's requests-per-minute quota when _repair_block loops
+# #Fix: over multiple rounds (up to 3 rounds × 3 stages = up to 9 rapid calls).
+# #Fix: Tune this value to match your Gemini quota tier.
+_GEMINI_INTER_REQUEST_DELAY_S: float = float(os.getenv("GEMINI_INTER_REQUEST_DELAY_S", "1.0"))
+# [FIX]
+# Lines (1-based, in the current full_text) whose local obligation Nitpick/Quickcheck
+# proved FALSE. A false obligation can never be discharged by tactic repair, so the
+# driver should skip leaf-level repair for these and escalate straight to regeneration.
+# Best-effort signal: it is repopulated as repair runs and read by the driver via
+# `pop_false_subgoal_lines()`. Cleared on read so stale entries don't leak across holes.
+_FALSE_SUBGOAL_LINES: Set[int] = set()
+
+def pop_false_subgoal_lines() -> Set[int]:
+    """Return and clear the set of lines found to have a FALSE local obligation."""
+    global _FALSE_SUBGOAL_LINES
+    out = set(_FALSE_SUBGOAL_LINES)
+    _FALSE_SUBGOAL_LINES = set()
+    return out
 
 # ========== Regex Patterns ==========
 _CTX_HEAD = re.compile(r"^\s*(?:using|from|with|then|ultimately|finally|also|moreover)\b")
@@ -93,7 +113,7 @@ def _fingerprint_block(text: str) -> str:
         return ""
     # Collapse whitespace, drop zero-width and backticks, normalize quotes.
     t = re.sub(r"\s+", " ", text.strip())
-    t = t.replace("`", "").replace("“", '"').replace("”", '"').replace("’", "'")
+    t = t.replace("`", "").replace("\u201c", '"').replace("\u201d", '"').replace("\u2019", "'")
     return t
 
 def _trim_block_for_prompt(text: str, max_chars: int = 800) -> str:
@@ -132,17 +152,48 @@ def _extract_proof_context(full_text: str, block_start_line: int) -> str:
     return "\n".join(context_lines).strip()
 
 # ========== LLM Generation ==========
+
+# #Fix: Track whether we issued a Gemini call this process so we can insert a
+# #Fix: delay before the *next* one. Using a module-level flag avoids coupling
+# #Fix: the sleep to the call site (callers don't need to know about rate limits).
+_gemini_last_call_time: float = 0.0
+
 def _generate_simple(prompt: str, model: Optional[str] = None, *, timeout_s: Optional[int] = None) -> str:
     m = model or DEFAULT_MODEL
     timeout = timeout_s or OLLAMA_TIMEOUT_S
+    display_model = m
+    dump = os.getenv("LLM_DUMP", "").strip().lower() in ("1", "true", "yes", "on")
+
+    if dump:
+        print(f"{'='*60}", flush=True)
+        print(f"[Repair] LLM Prompt:\n{prompt.rstrip()}", flush=True)
+        print(f"{'-'*60}", flush=True)
     
     if m.startswith("hf:"):
-        return _hf_generate(prompt, m[3:], timeout)
+        raw = _hf_generate(prompt, m[3:], timeout)
     elif m.startswith("gemini:"):
-        return _gemini_generate(prompt, m[7:], timeout)
+        # #Fix: Enforce a minimum gap between successive Gemini REST calls.
+        # #Fix: _repair_block drives up to 3 rounds × 3 stages so without this
+        # #Fix: guard all iterations land within the same second, causing 429s.
+        global _gemini_last_call_time
+        elapsed = time.monotonic() - _gemini_last_call_time
+        if elapsed < _GEMINI_INTER_REQUEST_DELAY_S:
+            time.sleep(_GEMINI_INTER_REQUEST_DELAY_S - elapsed)
+        raw = _gemini_generate(prompt, m[7:], timeout)
+        # #Fix: Record the time of this call so the next call can compute the gap.
+        _gemini_last_call_time = time.monotonic()
     elif m.startswith("ollama:"):
         m = m[7:]
-    return _ollama_generate(prompt, m, timeout)
+        raw = _ollama_generate(prompt, m, timeout)
+    else:
+        raw = _ollama_generate(prompt, m, timeout)
+
+    if dump:
+        print(f"[Repair] model={display_model}", flush=True)
+        print(f"[Repair] LLM Output:\n{raw}", flush=True)
+        print(f"{'='*60}", flush=True)
+
+    return raw
 
 def _ollama_generate(prompt: str, model: str, timeout_s: int) -> str:
     payload = {"model": model, "prompt": prompt, "options": {"temperature": OLLAMA_TEMP, "top_p": OLLAMA_TOP_P, "num_predict": OLLAMA_NUM_PREDICT}, "stream": False}
@@ -168,11 +219,28 @@ def _hf_generate(prompt: str, model_id: str, timeout_s: int) -> str:
     return _sanitize_llm_block(result.strip())
 
 def _gemini_generate(prompt: str, model_id: str, timeout_s: int) -> str:
+    # #Fix: This function now makes exactly one HTTP request (no silent retry loop,
+    # #Fix: no fallback model). If the call fails the exception propagates to
+    # #Fix: _generate_simple / _propose_block_repair, which already catch Exception
+    # #Fix: and continue to the next repair round — so we get one clean attempt
+    # #Fix: per round rather than a hidden fan-out of retries per round.
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
-    payload = {"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": OLLAMA_NUM_PREDICT}}
-    resp = _SESSION.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={api_key}", json=payload, timeout=timeout_s)
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model_id}:generateContent?key={api_key}"
+    )
+    # Fix: don't use OLLAMA_NUM_PREDICT for Gemini — it's far too small
+    gemini_max_tokens = max(OLLAMA_NUM_PREDICT, 4096)
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": gemini_max_tokens},
+    }
+    resp = _SESSION.post(url, json=payload, timeout=timeout_s)
+    # #Fix: Raise immediately on 429 / other HTTP errors so the caller's
+    # #Fix: except-block can skip the round cleanly rather than receiving
+    # #Fix: partial/empty JSON that confuses the block parser.
     resp.raise_for_status()
     data = resp.json()
     result = ""
@@ -229,7 +297,7 @@ def _propose_block_repair(*, goal: str, errors: List[str], ce_hints: Dict[str, L
         prompt = _LOCAL_SYSTEM + "\n\n" + _LOCAL_USER.format(
             goal=goal, errors="\n".join(f"- {e}" for e in errors) or "(none)",
             ce_hints="\n".join(ce) or "(none)", 
-            proof_context=(proof_context or "").strip(),  # Changed from state_block
+            proof_context=(proof_context or "").strip(),
             block_text=block_text.rstrip(), why=why,
             prior_failed_blocks=(prior_failed_blocks or "(none)")
         )
@@ -237,13 +305,14 @@ def _propose_block_repair(*, goal: str, errors: List[str], ce_hints: Dict[str, L
         prompt = _BLOCK_SYSTEM + "\n\n" + _BLOCK_USER.format(
             goal=goal, errors="\n".join(f"- {e}" for e in errors) or "(none)",
             ce_hints="\n".join(ce) or "(none)", 
-            proof_context=(proof_context or "").strip(),  # Changed from state_block
+            proof_context=(proof_context or "").strip(),
             block_text=block_text.rstrip(), why=why,
             prior_failed_blocks=(prior_failed_blocks or "(none)")
         )
     try:
         return _sanitize_llm_block(_generate_simple(prompt, model=model, timeout_s=timeout_s))
-    except Exception:
+    except Exception as e:
+        print(f"[repair] LLM call failed: {type(e).__name__}: {e}")
         return ""
 
 def propose_rule_based_repairs(goal_text: str, state_block: str, header: str, facts: List[str]) -> List[RepairOp]:
@@ -564,18 +633,27 @@ def _replace_failing_tactics_with_sorry(block_text: str, *, full_text_lines: Lis
         if cand is None:
             break
 
+        # [FIX]
         # --- Diagnostics before modifying the block ---
         # Run Quickcheck/Nitpick on the exact failing tactic line, so we capture
-        # a counterexample on the subgoal that is about to fail.
-        # try:
-        #     diag_txt = _run_nitpick_at_line(
-        #         isabelle, session, full_text_lines,
-        #         inject_before_1based=start_line + cand
-        #     )
-        #     if diag_txt:
-        #         _log("repair", "nitpick (pre-sorry)", diag_txt, trace=trace)
-        # except Exception:
-        #     pass
+        # a counterexample on the subgoal that is about to fail. A counterexample
+        # here means the local obligation is FALSE — tactic repair cannot help,
+        # and the structure above this line needs to change instead.
+        try:
+            diag = _run_nitpick_at_line(
+                isabelle, session, full_text_lines,
+                inject_before_1based=start_line + cand,
+                timeout_s=6,
+            )
+            if diag.get("found_cex"):
+                binds = ", ".join(diag.get("bindings", [])) or "(no parseable bindings)"
+                _log("repair", "nitpick (pre-sorry) FALSE-subgoal",
+                     f"counterexample at line {start_line + cand}: {binds}", trace=trace)
+                _FALSE_SUBGOAL_LINES.add(start_line + cand)
+            elif diag.get("raw"):
+                _log("repair", "nitpick (pre-sorry)", diag["raw"], trace=trace)
+        except Exception:
+            pass
 
         indent = block_lines[cand][:len(block_lines[cand]) - len(block_lines[cand].lstrip())]
         if block_lines[cand].lstrip().startswith("apply"):
@@ -614,7 +692,7 @@ def try_cegis_repairs(*, full_text: str, hole_span: Tuple[int, int], goal_text: 
         print(f"[repair] Retargeting from hole line {hole_line + 1} to earliest-failure line {anchor_line + 1} ({anchor_reason})")
     
     hs_s, hs_e = _enclosing_have_show_block(lines, focus_line)
-    if resume_stage <= 1 and hs_s >= 0 and left() > 5.0:
+    if resume_stage <= 1 and hs_s >= 0 and left() > 3.0:    # Fix: lower gate threshold from 5.0
         if trace:
             print("[repair] Trying have/show block repair…")
         current_text = _repair_block(current_text, lines, hs_s, hs_e, goal_text, state0, 
@@ -632,7 +710,7 @@ def try_cegis_repairs(*, full_text: str, hole_span: Tuple[int, int], goal_text: 
     
     # Stage 2a: Case-block
     cs, ce = _enclosing_case_block(lines, focus_line)
-    if resume_stage <= 2 and cs >= 0 and left() > 5.0:
+    if resume_stage <= 2 and cs >= 0 and left() > 3.0:    # Fix: lower gate threshold from 5.0
         if trace:
             print("[repair] Trying case-block repair…")
         current_text = _repair_block(current_text, lines, cs, ce, goal_text, state0, isabelle, session, 
@@ -647,7 +725,7 @@ def try_cegis_repairs(*, full_text: str, hole_span: Tuple[int, int], goal_text: 
     
     # Stage 2b: Subproof
     ps, pe = _enclosing_subproof(lines, focus_line)
-    if resume_stage <= 2 and ps >= 0 and left() > 3.0:
+    if resume_stage <= 2 and ps >= 0 and left() > 2.0:    # Fix: lower gate threshold from 3.0
         if trace:
             print("[repair] Trying subproof repair…")
         current_text = _repair_block(current_text, lines, ps, pe, goal_text, state0, isabelle, session, 
@@ -676,11 +754,11 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
     proof_context = _extract_proof_context(current_text, start)
     
     _log("repair", f"{block_type}-block (input)", block, trace=trace)
-    _log("repair", "proof_context (LLM input)", proof_context, trace=trace)  # Changed log
+    _log("repair", "proof_context (LLM input)", proof_context, trace=trace)
     _log("repair", "errors (LLM input)", "\n".join(err_texts) or "(none)", trace=trace)
     ce_list = ce.get("bindings", []) + ce.get("def_hints", []) if isinstance(ce, dict) else []  
     _log("repair", "counterexamples (LLM input)", "\n".join(ce_list) or "(none)", trace=trace)
-    rounds = 3 if left() >= 18.0 else 2 if left() >= 10.0 else 1
+    rounds = 3 if left() >= 12.0 else 2 if left() >= 6.0 else 1    # Fix: reduced from 18.0 - 10.0 to 12.0-6.0
     mem = _RepairMemory()
 
     # Build proposals in a few rounds; track failures and surface them to the LLM
@@ -689,7 +767,13 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
             break
         mem.rounds = rr + 1
         why = f"Previous {block_type}-block attempt did not solve the goal; try a different strategy."
-        timeout = int(min(60, max(8, left() * (0.55 / max(1, rounds - rr)))))
+
+        # #Fix: Cap per-round LLM timeout so the total across all rounds stays
+        # #Fix: within budget AND leaves headroom for the Gemini inter-request
+        # #Fix: delay.  Previously the timeout could consume the entire remaining
+        # #Fix: budget on round 0, leaving rounds 1-2 with nothing.
+        remaining = left()
+        timeout = int(min(45, max(20, remaining * 0.45 / max(1, rounds - rr))))
         
         # Build prior failed blocks text (trim + separators)
         prior_blocks_for_type = list(prior_store.get(block_type, [])) if isinstance(prior_store, dict) else []
@@ -717,7 +801,18 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
                 block_text=block, model=model, timeout_s=timeout, why=why,
                 prior_failed_blocks=fails_txt
             )
-        except Exception:
+        except Exception as e:
+            # #Fix: On any exception (including a 429 that slipped past raise_for_status,
+            # #Fix: or a network blip), wait one full delay period before trying the
+            # #Fix: next round rather than immediately hammering the API again.
+            if model and model.startswith("gemini:"):
+                err_str = str(e)
+                if "429" in err_str:
+                    wait = 15.0
+                    print(f"[repair] 429 rate limit, sleeping {wait}s...")
+                    time.sleep(wait)
+                elif "timeout" in err_str.lower():
+                    time.sleep(2.0)
             blk = ""
         
         if not _is_effective_block(blk):
