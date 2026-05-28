@@ -586,15 +586,16 @@ def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout
             obj = _decode_body_to_dict(_get_field(r, ("response_body", "body", "message", "payload")))
             if not isinstance(obj, dict):
                 continue
-            if obj.get("ok") is True:
-                if trace:
-                    print(f"[Skeleton] proof complete (ok=true) → score 0", flush=True)
-                return 0
             
             # Compute both failure and sorry counts before deciding score
+            sorry_count = len(find_sorry_spans(outline_text))
             nodes = obj.get("nodes") or []
             failed_count = sum((n.get("status") or {}).get("failed", 0) for n in nodes)
-            sorry_count = len(find_sorry_spans(outline_text))
+
+            if obj.get("ok") is True and sorry_count == 0:
+                if trace:
+                    print(f"[Skeleton] proof complete (ok=true, no sorries) → score 0", flush=True)
+                return 0
 
             for node in nodes:
                 for msg in (node.get("messages") or []):

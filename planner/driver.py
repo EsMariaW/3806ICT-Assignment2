@@ -833,9 +833,6 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             )
             _skel_mod.propose_isar_skeletons = _orig_propose  # restore
             full = best.text
-            if trace:
-                score, sorry_count, subgoals, _ = diag["scores"][0]
-                print(f"[Driver] scored candidate: subgoals={subgoals}", flush=True)
 
         # Generate outline
         # NOTE: 1.4 Get best proof outline from LLM
