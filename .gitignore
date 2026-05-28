@@ -6,3 +6,5 @@ logs/
 tmp/
 server.log
 venv/
+__pycache__/
+*.pyc
