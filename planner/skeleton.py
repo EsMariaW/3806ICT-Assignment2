@@ -20,7 +20,7 @@ from prover.config import (
 )
 
 # Isabelle helpers (for quick sketch check)
-from prover.isabelle_api import build_theory, run_theory, last_print_state_block
+from prover.isabelle_api import build_theory, run_theory, last_print_state_block, _normalize_type, _get_field, _decode_body_to_dict
 from prover.utils import parse_subgoals
 
 # Reuse local-context miner from repair (defs/facts list)
@@ -560,28 +560,58 @@ def _sanitize_outline(text: str, goal: str, *, force_outline: bool) -> str:
         text += "\n"
     return text
 
-def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout_s: int = 5) -> int:
+def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout_s: int = 5, trace: bool = False) -> int:
     """
-    Fix:
-    Returns number of remaining subgoals.
-        Returns 0 if the proof is already complete (no subgoals).
-        Returns 9999 on error.
+    Returns number of remaining subgoals, 0 if complete, or 9999 on error.
+    Reads directly from the FINISHED response rather than print_state.
     """
-    # NOTE: this is deliberately bounded; generated complete proofs can make
-    # simplification run for a long time during scoring.
     try:
-        thy = build_theory(outline_text.splitlines(), add_print_state=True, end_with="sorry")
+        thy = build_theory(outline_text.splitlines(), add_print_state=False, end_with=None)
+        if trace:
+            print(f"[Sketch] theory:\n{thy}", flush=True)
+
         resps = run_theory(isabelle, session_id, thy, timeout_s=timeout_s)
         if not resps:
+            if trace:
+                print(f"[Sketch] no responses from run_theory", flush=True)
             return 9999
-        block = last_print_state_block(resps) or ""
-        if "No subgoals" in block:
-            return 0
-        if not block.strip():
-            return 9999
-        n = parse_subgoals(block)
-        return int(n) if isinstance(n, int) else 9999
-    except Exception:
+        if trace:
+            print(f"[Sketch] resps: {resps}", flush=True)
+
+        for r in reversed(resps):
+            if _normalize_type(_get_field(r, ("response_type", "type", "kind", "tag", "name"))) != "FINISHED":
+                continue
+            obj = _decode_body_to_dict(_get_field(r, ("response_body", "body", "message", "payload")))
+            if not isinstance(obj, dict):
+                if trace:
+                    print(f"[Sketch] FINISHED body not a dict: {str(obj)[:100]}", flush=True)
+                continue
+            if obj.get("ok") is True:
+                if trace:
+                    print(f"[Sketch] proof complete (ok=true) → score 0", flush=True)
+                return 0
+            nodes = obj.get("nodes") or []
+            for node in nodes:
+                for msg in (node.get("messages") or []):
+                    text = str(msg.get("message", ""))
+                    if "goal (" in text or "subgoal" in text:
+                        n = parse_subgoals(text)
+                        if trace:
+                            print(f"[Sketch] found goal text, parse_subgoals={n!r}, text={text[:100]!r}", flush=True)
+                        if isinstance(n, int):
+                            return n
+            sorry_count = len(find_sorry_spans(outline_text))
+            if trace:
+                print(f"[Sketch] ok=false, no goal text → sorry count={sorry_count} as proxy", flush=True)
+            return sorry_count
+
+        if trace:
+            print(f"[Sketch] no FINISHED response in {len(resps)} responses", flush=True)
+        return 9999
+
+    except Exception as e:
+        if trace:
+            print(f"[Sketch] FAILED: {type(e).__name__}: {e}", flush=True)
         return 9999
 
 def _state_block_for_goal(isabelle, session_id: str, goal: str) -> str:
@@ -1012,11 +1042,15 @@ def propose_isar_skeleton_diverse_best(
                     flush=True,
                 )
 
-        n = (
-            _quick_sketch_score(isabelle, session_id, sk.text, timeout_s=score_timeout)
-            if score_timeout > 0
-            else 9999
-        )
+        if score_timeout > 0:
+            n = (_quick_sketch_score(isabelle, session_id, sk.text, timeout_s=score_timeout, trace=trace))
+            if trace:
+                print(f"[Skeleton] _quick_sketch_score returned: {n}")
+        else:
+            n = (9999)
+            if trace:
+                print(f"[Skeleton] skipped _quick_sketch_score because score_timeout>0; using default score")
+
         if trace:
             print(f"[Skeleton] scored candidate {i + 1}/{len(cands)}: subgoals={n}", flush=True)
         sorry_count = len(sk.holes)    # Fix: added sorry-count tiebreaker in scoring
