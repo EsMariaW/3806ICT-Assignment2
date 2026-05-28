@@ -174,9 +174,25 @@ def run_theory(
     _use_calls += 1
     _last_call_timed_out = False
 
-    tmpdir = tempfile.TemporaryDirectory()
+    import uuid as _uuid, shutil as _shutil
+    if _platform.system() == "Windows":
+        _cygwin_tmp = "/cygdrive/c/Users/user/Desktop/Isabelle2025-2/contrib/cygwin/tmp"
+        _tmp_path = _cygwin_tmp + "/isa_" + _uuid.uuid4().hex[:8]
+        _win_path = _tmp_path.replace("/cygdrive/c/", "C:/").replace("/", "\\")
+        os.makedirs(_win_path, exist_ok=True)
+        _tmp_path_for_isabelle = _tmp_path
+        class _TmpDir:
+            name = _tmp_path
+            win_name = _win_path
+            def cleanup(self): _shutil.rmtree(_win_path, ignore_errors=True)
+        tmpdir = _TmpDir()
+    else:
+        tmpdir = tempfile.TemporaryDirectory()
     try:
-        p = os.path.join(tmpdir.name, "Scratch.thy")
+        if _platform.system() == "Windows" and hasattr(tmpdir, "win_name"):
+            p = tmpdir.win_name + "\\Scratch.thy"
+        else:
+            p = os.path.join(tmpdir.name, "Scratch.thy")
         with open(p, "w", encoding="utf-8") as f:
             f.write(theory_text)
 
