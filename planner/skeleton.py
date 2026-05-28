@@ -575,18 +575,18 @@ def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout
     """
     try:
         thy = build_theory(outline_text.splitlines(), add_print_state=False, end_with=None)
-        if trace:
-            print(f"[Skeleton] theory:\n{thy}", flush=True)
+        # if trace:
+        #     print(f"[Skeleton] theory:\n{thy}", flush=True)
 
         resps = run_theory(isabelle, session_id, thy, timeout_s=timeout_s)
         if not resps:
-            if trace:
-                print(f"[Skeleton] no responses from run_theory", flush=True)
+            # if trace:
+            #     print(f"[Skeleton] no responses from run_theory", flush=True)
             return 9999
-        if trace:
-            print(f"[Skeleton] resps:", flush=True)
-            for resp in resps:
-                print(f"\t\t{resp}", flush=True)
+        # if trace:
+        #     print(f"[Skeleton] resps:", flush=True)
+        #     for resp in resps:
+        #         print(f"\t\t{resp}", flush=True)
 
         for r in reversed(resps):
             if _normalize_type(_get_field(r, ("response_type", "type", "kind", "tag", "name"))) != "FINISHED":
@@ -601,8 +601,8 @@ def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout
             failed_count = sum((n.get("status") or {}).get("failed", 0) for n in nodes)
 
             if obj.get("ok") is True and sorry_count == 0:
-                if trace:
-                    print(f"[Skeleton] proof complete (ok=true, no sorries) → score 0", flush=True)
+                # if trace:
+                #     print(f"[Skeleton] proof complete (ok=true, no sorries) → score 0", flush=True)
                 return 0
 
             for node in nodes:
@@ -614,17 +614,17 @@ def _quick_sketch_score(isabelle, session_id: str, outline_text: str, *, timeout
                             return n
                         
             score = failed_count + sorry_count
-            if trace:
-                print(f"[Skeleton] ok=false → failures={failed_count} sorries={sorry_count} score={score}", flush=True)
+            # if trace:
+            #     print(f"[Skeleton] ok=false → failures={failed_count} sorries={sorry_count} score={score}", flush=True)
             return score
 
-        if trace:
-            print(f"[Skeleton] no FINISHED response in {len(resps)} responses", flush=True)
+        # if trace:
+        #     print(f"[Skeleton] no FINISHED response in {len(resps)} responses", flush=True)
         return 9999
 
     except Exception as e:
-        if trace:
-            print(f"[Skeleton] FAILED: {type(e).__name__}: {e}", flush=True)
+        # if trace:
+        #     print(f"[Skeleton] FAILED: {type(e).__name__}: {e}", flush=True)
         return 9999
 
 def _state_block_for_goal(isabelle, session_id: str, goal: str) -> str:
@@ -1057,8 +1057,8 @@ def propose_isar_skeleton_diverse_best(
 
         if score_timeout > 0:
             n = (_quick_sketch_score(isabelle, session_id, sk.text, timeout_s=score_timeout, trace=trace))
-            if trace:
-                print(f"[Skeleton] _quick_sketch_score returned: {n}")
+            # if trace:
+            #     print(f"[Skeleton] _quick_sketch_score returned: {n}")
         else:
             n = (9999)
             if trace:

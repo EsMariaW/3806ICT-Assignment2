@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeo
 import hashlib
 
 from planner.skeleton import (
-    Skeleton, find_sorry_spans, propose_isar_skeleton, propose_isar_skeleton_diverse_best,
+    Skeleton, find_sorry_spans, propose_isar_skeleton, propose_isar_skeleton_diverse_best, _quick_sketch_score
 )
 from planner.repair import try_cegis_repairs, regenerate_whole_proof, pop_false_subgoal_lines, _APPLY_OR_BY as _TACTIC_LINE_RE
 from prover.config import ISABELLE_SESSION
@@ -61,7 +61,7 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
     except Exception:
         prev_line = ""
         if trace:
-            print(f"[Driver] fill exception: prev_line set to default empty string")
+            print(f"[Driver] fill exception: prev_line set to default empty string", flush=True)
 
     # remove the hole, if the prove has been solved before the start of the hole
     # Example:
@@ -86,8 +86,8 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
 
     # if trace:
     #     # if orig_goal:
-    #     #     print(f"[fill] Original goal: {orig_goal}")
-    #     print(f"[fill] Effective goal: {eff_goal}")
+    #     #     print(f"[fill] Original goal: {orig_goal}", flush=True)
+    #     print(f"[fill] Effective goal: {eff_goal}", flush=True)
 
     res = prove_goal(
         isabelle, session, eff_goal, model_name_or_ensemble=model,
@@ -99,8 +99,8 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
         do_variants=False, variant_timeout=6, variant_tries=24,
         enable_reranker=True, initial_state_hint=state_block,
     )
-    if trace:
-        print(f"\n\nres\n\n{res}\n\n")
+    # if trace:
+    #     print(f"\n\nres\n\n{res}\n\n", flush=True)
 
     steps = [str(s) for s in res.get("steps", [])]
 
@@ -137,28 +137,42 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
     # Handle finisher
     if fin:
         script_lines = applies + [fin]
-        insert = "\n  " + "\n  ".join(script_lines) + "\n"
-        s, e = hole_span
-        new_text = full_text[:s] + insert + full_text[e:]
 
-        if _verify_full_proof(isabelle, session, new_text):
-            return new_text, True, "\n".join(script_lines)
+        # Unpack the hole span bounds cleanly here
+        s, e = hole_span
+
+        line_start = full_text.rfind("\n", 0, s) + 1
+        line_end = full_text.find("\n", e)
+        if line_end == -1:
+            line_end = len(full_text)
+
+        indent = full_text[line_start:s]
+
+        replacement = indent + "\n".join(script_lines)
+
+        new_text = (
+            full_text[:line_start]
+            + replacement
+            + full_text[line_end:]
+        )
+
+        return new_text, True, "\n".join(script_lines)
         
         # Fallback: splice failed (e.g. bare proof...sorry...qed structure).
         # Try replacing the entire proof with a top-level finisher instead.
         # This handles the case where the LLM generates a minimal skeleton
         # but sledgehammer already has the answer.
-        lemma_line = _first_lemma_line(full_text)
-        if lemma_line and not applies:
-            top_level = lemma_line.rstrip() + "\n  " + fin + "\n"
-            if trace:
-                print(f"[fill] Finisher splice failed; trying top-level fallback: {fin}")
-            if _verify_full_proof(isabelle, session, top_level):
-                if trace:
-                    print(f"[fill] Top-level fallback succeeded: {fin}")
-                return top_level, True, fin + " (top-level-fallback)"
+        # lemma_line = _first_lemma_line(full_text)
+        # if lemma_line and not applies:
+        #     top_level = lemma_line.rstrip() + "\n  " + fin + "\n"
+        #     if trace:
+        #         print(f"[fill] Finisher splice failed; trying top-level fallback: {fin}", flush=True)
+        #     if _verify_full_proof(isabelle, session, top_level):
+        #         if trace:
+        #             print(f"[fill] Whole proof fixed: {fin}", flush=True)
+        #         return top_level, True, fin + " (top-level-fallback)"
 
-        return full_text, False, "finisher-unverified"
+        # return full_text, False, "finisher-unverified"
 
     # Handle apply-only  (NEVER mark success for apply-only scripts)
     if applies:
@@ -268,7 +282,7 @@ def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model:
             eff_goal = _effective_goal_from_state(st, goal_text, full, span, trace)
         except Exception as ex:
             if trace:
-                print(f"[repair] Could not extract state/goal before tactic (skipping): {ex}")
+                print(f"[repair] Could not extract state/goal before tactic (skipping): {ex}", flush=True)
             i += 1
             continue
 
@@ -284,11 +298,11 @@ def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model:
         except (TimeoutError, _FuturesTimeout, ValueError) as ex:
             # TimeoutError: verifier timed out; ValueError: isabelle_client returned unexpected/empty response
             if trace:
-                print(f"[repair] CEGIS repair aborted (treat as failed): {type(ex).__name__}: {ex}")
+                print(f"[repair] CEGIS repair aborted (treat as failed): {type(ex).__name__}: {ex}", flush=True)
             return full, False
         except Exception as ex:
             if trace:
-                print(f"[repair] CEGIS repair crashed (treat as failed): {type(ex).__name__}: {ex}")
+                print(f"[repair] CEGIS repair crashed (treat as failed): {type(ex).__name__}: {ex}", flush=True)
             return full, False
 
         if applied and patched != full:
@@ -600,7 +614,7 @@ def _try_direct_finishers(isabelle, session: str, goal: str, left_s, trace: bool
         except Exception:
             ok = False
         if trace:
-            print(f"[fastpath] {fin:32s} -> {'OK' if ok else 'x'}")
+            print(f"[fastpath] {fin:32s} -> {'OK' if ok else 'x'}", flush=True)
         if ok:
             return candidate
     return None
@@ -754,7 +768,7 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
             if not ok and model and left_s() > 10.0:
                 if trace:
                     print(f"[Driver] Goal does not parse after regex fixes ({detail}); "
-                          f"attempting LLM syntax fix...")
+                          f"attempting LLM syntax fix...", flush=True)
                 try:
                     from planner.skeleton import _generate_simple
                     fix_prompt = f"""You are an Isabelle/HOL expert. The following goal statement has a syntax error and cannot be parsed by Isabelle.
@@ -787,24 +801,24 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                             ok2, detail2 = _goal_parses(isa, session, fixed_goal)
                             if ok2:
                                 if trace:
-                                    print(f"[Driver] LLM syntax fix succeeded: {fixed_goal!r}")
+                                    print(f"[Driver] LLM syntax fix succeeded: {fixed_goal!r}", flush=True)
                                 goal = fixed_goal  # accept the fix, continue normally
                                 ok = True
                             else:
                                 if trace:
                                     print(f"[Driver] LLM syntax fix did not parse either "
-                                        f"({detail2}); discarding, flagging as MALFORMED.")
+                                        f"({detail2}); discarding, flagging as MALFORMED.", flush=True)
                         else:
                             if trace:
-                                print(f"[Driver] LLM syntax fix rejected — changed logical content; discarding.")
+                                print(f"[Driver] LLM syntax fix rejected — changed logical content; discarding.", flush=True)
                 except Exception as e:
                     if trace:
-                        print(f"[Driver] LLM syntax fix attempt failed: {type(e).__name__}: {e}")
+                        print(f"[Driver] LLM syntax fix attempt failed: {type(e).__name__}: {e}", flush=True)
 
             if not ok:
                 if trace:
                     print(f"[Driver] Goal statement does NOT parse in Isabelle ({detail}); "
-                          f"flagging as MALFORMED (not a prover failure).")
+                          f"flagging as MALFORMED (not a prover failure).", flush=True)
                 return PlanAndFillResult(False, f'lemma "{goal}"\n  (* MALFORMED: statement failed to parse *)\n', [], [], status="malformed")
             elif trace:
                 print("[Driver] Goal statement parses; proceeding.", flush=True)
@@ -970,11 +984,11 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     if verify_errs:
                         print("[Driver] Complete proof FAILED verification. Isabelle reported:")
                         for m in verify_errs[:5]:
-                            print(f"        - {str(m).strip()}")
+                            print(f"        - {str(m).strip()}", flush=True)
                     else:
                         print("[Driver] Complete proof FAILED verification (no specific error text captured).")
                 except Exception as ex:
-                    print(f"[Driver] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}")
+                    print(f"[Driver] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}", flush=True)
             else:
                 try:
                     _, verify_errs = _quick_state_and_errors(isa, session, full, timeout_s=err_timeout)
@@ -1052,6 +1066,12 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
         _skip_fill_logged_once: set[Tuple[str, int]] = set() # For logging when we skip fill attempts due to escalating repairs
         focused_hole_key: Optional[str] = None # Focus on a specific hole across iterations
 
+
+        # Before starting modifications
+        current_best_score = _quick_sketch_score(isa, session, full, timeout_s=left_s(), trace=trace)
+        if trace:
+            print(f"[Driver] Initial proof outline sketch score: {current_best_score}", flush=True)
+
         # Fill and repair loop
         # NOTE: 2.1 Trigger Fill
         while "sorry" in full and left_s() > 0:
@@ -1084,7 +1104,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 if span is None:
                     # previous hole has been closed
                     if trace:
-                        print(f"[Driver] Focused hole @{focused_hole_key} was closed. Moving to first hole.")
+                        print(f"[Driver] Focused hole @{focused_hole_key} was closed. Moving to first hole.", flush=True)
                     focused_hole_key = None
 
             if span is None:
@@ -1108,38 +1128,51 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     full2, ok, script = full, False, "fill-exception"
                 except Exception as ex:
                     if trace:
-                        print(f"[Driver] _fill_one_hole crashed: {type(ex).__name__}: {ex}")
+                        print(f"[Driver] _fill_one_hole crashed: {type(ex).__name__}: {ex}", flush=True)
                     full2, ok, script = full, False, "fill-exception"
 
+                 # Check sketch score of the modified candidate
+                new_score = _quick_sketch_score(isa, session, full2, timeout_s=left_s(), trace=trace)
+                if trace:
+                    print(f"[Driver] Fill attempt result sketch score: {new_score}", flush=True)
+
                 # fill suceedes and makes verified progress: accept and continue to next hole
-                if ok and full2 != full:
-                    if trace:
-                        print("[Driver] Hole filled and verified successfully. Moving on to next hole...", flush=True)
+                # --- SCORE CHECK (Stage 0) ---
+                if new_score < current_best_score:
                     full = full2
                     fills.append(script)
-                    repair_progress.pop(hole_key, None)
-                    focused_hole_key = None
-                    continue
-                elif not ok and full2 != full:
+
                     if trace:
-                        print("[Driver] Partial progress from fill (unverified). Opening sorries and staying focused...")
-                    old_start = span[0]
-                    full = full2
-                    full2, opened = _open_minimal_sorries(isa, session, full)
-                    if opened:
-                        if trace:
-                            print("[Driver] Sorries opened. Continuing repair...", flush=True)
-                        full = full2
-                        new_spans = find_sorry_spans(full)
-                        near = _nearest_sorry_span(new_spans, old_start)
-                        focused_hole_key = _hole_fingerprint(full, near) if near else None
-                        continue
-                    else:
-                        if trace:
-                            print("[Driver] Could not open sorries. Escalating to repair stage 1...")
-                        repair_progress[hole_key] = 1
-                        focused_hole_key = hole_key
-                        start_stage = 1
+                        print(f"[Driver] Fill improved score from {current_best_score} to {new_score}! Testing full verification...", flush=True)
+
+                    current_best_score = new_score
+
+                    # Verify if this improvement completely solved the proof
+                    # Only test full verification if we actually cleared all remaining holes!
+                    if "sorry" not in full:
+                        if _verify_full_proof(isa, session, full):
+                            if trace:
+                                print("[Driver] Early termination triggered: full proof closed via fill.")
+                            return PlanAndFillResult(True, full, fills, failed)
+                        else:
+                            # The proof has no sorries, but doesn't verify: force escalate to top-down structure repair instead of letting the while loop die.
+                            if trace:
+                                print("[Driver] No sorries left but proof unverified. Escalating to structure repair.")
+                            full, ok = _repair_failed_proof_topdown(isa, session, full, goal_text, model, left_s, max_repairs_per_hole, trace)
+                            if ok:
+                                return PlanAndFillResult(True, full, fills, failed)
+                            
+                            # If that fails, break or open a minimal sorry back up to let CEGIS fix the structural line
+                            full, opened = _open_minimal_sorries(isa, session, full)
+                            if not opened:
+                                break
+                    
+                    # Track progress and continue to the next iteration safely
+                    repair_progress[hole_key] = 0  # Keep it at stage 0 since it succeeded!
+                    focused_hole_key = None        # Clear focus to check remaining holes
+
+                    continue
+
                 else:
                     if trace:
                         print("[Driver] Fill made no progress. Escalating to repair stage 1...")
@@ -1148,7 +1181,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     start_stage = 1
             else:
                 if trace and (hole_key, start_stage) not in _skip_fill_logged_once:
-                    print(f"[Driver] Skipping fill for hole @{hole_key}; running repairs at stage {start_stage}")
+                    print(f"[Driver] Skipping fill for hole @{hole_key}; running repairs at stage {start_stage}", flush=True)
                     _skip_fill_logged_once.add((hole_key, start_stage))
 
             # Try CEGIS repairs
@@ -1163,12 +1196,12 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     continue
                 except Exception as ex:
                     if trace:
-                        print(f"[Driver] Could not compute effective goal: {type(ex).__name__}: {ex}")
+                        print(f"[Driver] Could not compute effective goal: {type(ex).__name__}: {ex}", flush=True)
                     continue
 
                 try:
                     if trace:
-                        print(f"[Driver] Attempting CEGIS repairs on hole @{hole_key} with effective goal:\n{eff_goal}\n")
+                        print(f"[Driver] Attempting CEGIS repairs on hole @{hole_key} with effective goal:\n{eff_goal}\n", flush=True)
                     patched, applied, _ = try_cegis_repairs(
                         full_text=full, hole_span=span, goal_text=eff_goal, model=model,
                         isabelle=isa, session=session,
@@ -1181,127 +1214,144 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     patched, applied = full, False
                 except Exception as ex:
                     if trace:
-                        print(f"[Driver] try_cegis_repairs crashed: {type(ex).__name__}: {ex}")
+                        print(f"[Driver] try_cegis_repairs crashed: {type(ex).__name__}: {ex}", flush=True)
                     patched, applied = full, False
 
-                if patched != full:
+                # Check sketch score of the CEGIS candidate
+                new_score = _quick_sketch_score(isa, session, patched, timeout_s=left_s(), trace=trace)
+                if trace:
+                    print(f"[Driver] Repair attempt CEGIS candidate score: {new_score}", flush=True)
+
+                # --- SCORE CHECK (CEGIS Stages 1, 2, 3) ---
+                if patched != full and new_score < current_best_score:
                     if trace:
-                        print(f"[Driver] CEGIS repairs proposed a change for hole @{hole_key} (applied={applied}). Verifying...")
+                        print(f"[Driver] CEGIS Stage {current_stage} improved score from {current_best_score} to {new_score}! Testing full verification...", flush=True)
+
+                    full = patched
+                    current_best_score = new_score
+                    repair_progress.clear()
+                    stage_tries.clear()
+                    focused_hole_key = None
+
                     try:
-                        if trace:
-                            print(f"[Driver] Verifying CEGIS repair for hole @{hole_key}...")
-                        if _verify_full_proof(isa, session, patched):
+                        if _verify_full_proof(isa, session, full):
                             if trace:
-                                print(f"[Driver] Stage {current_stage} repair verified! Clearing progress and moving on.")
-                            full = patched
-                            repair_progress.clear()
-                            stage_tries.clear()
-                            focused_hole_key = None
-                            continue
+                                print("[Driver] Early termination triggered: full proof closed via CEGIS.")
+                            return PlanAndFillResult(True, full, fills, failed)
                     except (TimeoutError, _FuturesTimeout, ValueError) as ex:
                         _restart_isabelle("verify_full_proof_after_repair", ex)
+                    continue
 
-                    # Unverified change: count attempt and decide escalation
-                    key = (hole_key, start_stage)
-                    stage_tries[key] = stage_tries.get(key, 0) + 1
+                # --- FALLBACK / ESCALATION PATH (Runs only if score did NOT improve) ---
+                # Unverified change: count attempt and decide escalation
+                key = (hole_key, start_stage)
+                stage_tries[key] = stage_tries.get(key, 0) + 1
 
-                    STAGE1_CAP = 2
-                    STAGE2_CAP = 3
+                STAGE1_CAP = 2
+                STAGE2_CAP = 3
 
-                    # FALSE-SUBGOAL FAST-PATH:
-                    # If the per-line Nitpick/Quickcheck diagnostic proved that a
-                    # local obligation under this hole is FALSE, then leaf-level
-                    # tactic repair (stages 1-2) can never close it — the structure
-                    # containing that false `have` must be regenerated. Skip the
-                    # remaining caps and jump straight to whole-proof regeneration.
-                    false_lines = pop_false_subgoal_lines()
-                    force_regen = bool(false_lines)
-                    if force_regen and trace:
-                        print(f"[Driver] FALSE subgoal proven at line(s) {sorted(false_lines)}; "
-                              f"skipping leaf-repair and regenerating whole proof.")
+                # FALSE-SUBGOAL FAST-PATH:
+                # If the per-line Nitpick/Quickcheck diagnostic proved that a
+                # local obligation under this hole is FALSE, then leaf-level
+                # tactic repair (stages 1-2) can never close it — the structure
+                # containing that false `have` must be regenerated. Skip the
+                # remaining caps and jump straight to whole-proof regeneration.
+                false_lines = pop_false_subgoal_lines()
+                force_regen = bool(false_lines)
+                if force_regen and trace:
+                    print(f"[Driver] FALSE subgoal proven at line(s) {sorted(false_lines)}; "
+                        f"skipping leaf-repair and regenerating whole proof.", flush=True)
 
-                    should_escalate = force_regen
-                    if start_stage == 1 and stage_tries[key] >= STAGE1_CAP:
-                        should_escalate = True
-                        if trace:
-                            print(f"[Driver] Stage 1 cap ({STAGE1_CAP}) reached. Escalating to stage 2...")
-                    elif start_stage == 2 and stage_tries.get((hole_key, 2), 0) >= STAGE2_CAP:
-                        should_escalate = True
-                        if trace:
-                            print(f"[Driver] Stage 2 cap ({STAGE2_CAP}) reached. Regenerating whole proof...")
+                should_escalate = force_regen
+                if start_stage == 1 and stage_tries[key] >= STAGE1_CAP:
+                    should_escalate = True
+                    if trace:
+                        print(f"[Driver] Stage 1 cap ({STAGE1_CAP}) reached. Escalating to stage 2...", flush=True)
+                elif start_stage == 2 and stage_tries.get((hole_key, 2), 0) >= STAGE2_CAP:
+                    should_escalate = True
+                    if trace:
+                        print(f"[Driver] Stage 2 cap ({STAGE2_CAP}) reached. Regenerating whole proof...", flush=True)
 
-                    if should_escalate:
-                        # A proven-false subgoal means stage-2 leaf repair is also
-                        # futile, so force the jump to regeneration regardless of stage.
-                        if start_stage < 2 and not force_regen:
-                            repair_progress[hole_key] = 2
-                            focused_hole_key = hole_key
-                            continue
-                        else:
-                            regen_budget = min(40.0, max(8.0, left_s() * 0.8))
-                            try:
-                                new_full, ok_re, _ = regenerate_whole_proof(
-                                    full_text=full, goal_text=goal_text, model=model,
-                                    isabelle=isa, session=session, budget_s=regen_budget,
-                                    trace=trace, prior_outline_text=full
-                                )
-                            except (TimeoutError, _FuturesTimeout, ValueError) as ex:
-                                _restart_isabelle("regenerate_whole_proof", ex)
-                                new_full, ok_re = full, False
-                            except Exception as ex:
-                                if trace:
-                                    print(f"[Driver] regenerate_whole_proof crashed: {type(ex).__name__}: {ex}")
-                                new_full, ok_re = full, False
-
-                            if ok_re and new_full != full:
-                                full = new_full
-                                repair_progress.clear()
-                                stage_tries.clear()
-                                focused_hole_key = None
-                                continue
-
-                            if trace:
-                                print("[Driver] Whole regeneration failed to verify; proposing a fresh outline…")
-                            temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
-                            k = int(outline_k) if outline_k is not None else 3
-                            best, _ = propose_isar_skeleton_diverse_best(
-                                goal_text, isabelle=isa, session_id=session, model=model, temps=temps, k=k,
-                                force_outline=True, priors_path=priors_path, context_hints=context_hints,
-                                lib_templates=lib_templates, alpha=alpha, beta=beta, gamma=gamma,
-                                hintlex_path=hintlex_path, hintlex_top=hintlex_top, trace=trace,
+                if should_escalate:
+                    # A proven-false subgoal means stage-2 leaf repair is also
+                    # futile, so force the jump to regeneration regardless of stage.
+                    if start_stage < 2 and not force_regen:
+                        repair_progress[hole_key] = 2
+                        focused_hole_key = hole_key
+                        continue
+                    else:
+                        regen_budget = min(40.0, max(8.0, left_s() * 0.8))
+                        try:
+                            new_full, ok_re, _ = regenerate_whole_proof(
+                                full_text=full, goal_text=goal_text, model=model,
+                                isabelle=isa, session=session, budget_s=regen_budget,
+                                trace=trace, prior_outline_text=full
                             )
-                            full = best.text
+                        except (TimeoutError, _FuturesTimeout, ValueError) as ex:
+                            _restart_isabelle("regenerate_whole_proof", ex)
+                            new_full, ok_re = full, False
+                        except Exception as ex:
+                            if trace:
+                                print(f"[Driver] regenerate_whole_proof crashed: {type(ex).__name__}: {ex}")
+                            new_full, ok_re = full, False
+
+                        # If regeneration improved sketch score or completely verified
+                        regen_score = _quick_sketch_score(isa, session, new_full, timeout_s=left_s(), trace=trace)
+                        if trace:
+                            print(f"[Driver] Repair attempt regeneration score: {new_score}", flush=True)
+                        if (ok_re or regen_score < current_best_score) and new_full != full:
+                            full = new_full
+                            current_best_score = regen_score
                             repair_progress.clear()
                             stage_tries.clear()
                             focused_hole_key = None
+                            if ok_re or _verify_full_proof(isa, session, full):
+                                return PlanAndFillResult(True, full, fills, failed)
                             continue
 
+                        if trace:
+                            print("[Driver] Whole regeneration failed to verify; proposing a fresh outline…")
+                        temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
+                        k = int(outline_k) if outline_k is not None else 3
+                        best, _ = propose_isar_skeleton_diverse_best(
+                            goal_text, isabelle=isa, session_id=session, model=model, temps=temps, k=k,
+                            force_outline=True, priors_path=priors_path, context_hints=context_hints,
+                            lib_templates=lib_templates, alpha=alpha, beta=beta, gamma=gamma,
+                            hintlex_path=hintlex_path, hintlex_top=hintlex_top, trace=trace,
+                        )
+                        full = best.text
+                        current_best_score = _quick_sketch_score(isa, session, full, timeout_s=left_s(), trace=trace)
+                        if trace:
+                            print(f"[Driver] Repair current best score: {current_best_score}", flush=True)
+                        repair_progress.clear()
+                        stage_tries.clear()
+                        focused_hole_key = None
+                        continue
+
+                # --- LOCAL VARIANT MUTATION FAILURES ---
+                # Code only hits here if we didn't improve the score AND did not trigger a hard escalation yet.
+                if patched != full:
                     if trace:
                         cap = STAGE1_CAP if start_stage == 1 else STAGE2_CAP
-                        print(f"[repair] Stage {start_stage} changed but unverified (attempt {stage_tries[key]}/{cap}). Opening sorries...")
-                    full = patched
-                    full2, opened = _open_minimal_sorries(isa, session, full)
+                        print(f"[repair] Stage {start_stage} changed but unverified/unoptimized (attempt {stage_tries[key]}/{cap}). Opening sorries...", flush=True)
+
+                    # Attempt opening minimal sorries on the unverified variant candidate context to see if it unblocks locally
+                    full2, opened = _open_minimal_sorries(isa, session, patched)
                     if opened:
                         full = full2
                         focused_hole_key = None
                         continue
-                    else:
-                        if trace:
-                            print("[repair] Could not open sorries; escalating stage...")
-                        if start_stage < 2:
-                            repair_progress[hole_key] = 2
-                            focused_hole_key = hole_key
-                        continue
 
-                # No change from repair: count attempt and escalate
-                key = (hole_key, start_stage)
-                stage_tries[key] = stage_tries.get(key, 0) + 1
+                # Default fallback step if sorries couldn't open or if patched was identical to full
+                if trace:
+                    print("[repair] No structural progress possible or sorries failed to open; escalating stage...")
                 if start_stage < 2:
                     repair_progress[hole_key] = min(start_stage + 1, 2)
                     focused_hole_key = hole_key
                 else:
                     repair_progress[hole_key] = 2
                     focused_hole_key = hole_key
+                continue
 
         # Final verification
         success = ("sorry" not in full)
