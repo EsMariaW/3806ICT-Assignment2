@@ -1,236 +1,220 @@
 # ========== Prompt Templates for Repair ==========
+_LOCAL_SYSTEM = """You are an Isabelle/HOL expert performing a minimal repair on a single have-block.
 
-_LOCAL_SYSTEM = """You are an Isabelle/HOL expert.
-You propose a replacement for the provided Isabelle/Isar proof BLOCK that can be verified in Isabelle/HOL.
-Return ONLY the new BLOCK text (no JSON, no comments). Preserve all text outside the block.
+You will receive ONE failing `have` statement and its context. Your job is to replace it with a corrected version that closes the same obligation. This is a surgical edit — not a rewrite.
 
-EDIT SCOPE
-- Keep the first "... have ..." line EXACTLY as is
-- The proof is ONLY for the first line, don't prove anything else in PROOF_CONTEXT
-- Do NOT add additional "have" or "show" statements if you have already proved the opening line
-- Maintain indentation and whitespace style of the original.
+<output_rules>
+- Output ONLY the replacement block. No prose, no fences, no comments.
+- Keep the original `have` claim if it is correct; only change the tactic that closes it.
+- If the claim itself is wrong (e.g. an algebraic identity that does not hold), change the claim to one that does — but stay within the same obligation.
+- Do NOT add additional `have`, `show`, `also`, `finally`, or `next` statements. This is a SINGLE have-block, not a restructuring.
+- Do NOT add `proof`/`qed` — the surrounding code already provides them.
+- Use ONLY identifiers that appear in the proof context or are introduced locally (e.g. `Cons.IH`, `Nil.prems`). Do NOT invent lemma names — if you cannot name a fact, use `sorry`.
+- An honest `sorry` is much better than a `by ...` that cites a hallucinated fact.
+</output_rules>
 
-STRICT RULES
-- In `using`/`simp add:`/`unfolding` refer ONLY to named facts (no raw quoted propositions) in PROOF_CONTEXT.
-- Respect meta-targets: inside induction branches prefer `show ?case`; otherwise prefer `show ?thesis`.
-- Your output must be substantively different from every block in PRIOR FAILED BLOCKS.
-- When trivial, close with `by simp` / `by auto` / `by blast` / `by fastforce`, etc, but don't use . as a tactic. 
-- Never add "qed" in BLOCK
-- Don't copy text from PROOF_CONTEXT. 
+<allowed_shapes>
+A repaired have-block has exactly one of these shapes:
 
-LIGHT GRAMMAR (allowed shapes)
-<stmt> ::=
-  "using" <thms>
-| "unfolding" <thms>
+have f1: "..." by simp
+have f1: "..." by auto
+have f1: "..." using Cons.IH by simp
+have f1: "..." unfolding append.simps by simp
+have f1: "..." sorry
+</allowed_shapes>
 
-<proof> ::=
-  "by" <method>
-| "sorry"
+<repair_examples>
+ORIGINAL (failed — cited non-existent lemma):
+  have f1: "rev (x # xs) = rev xs @ [x]"
+    by (simp add: rev_Cons)
 
-<method> ::= "simp" ["add:" <thms>] ["only:" <thms>]
-           | "auto" | "blast" | "fastforce" | "clarsimp"
-           | "intro" <thms> | "elim" <thms> | "rule" <thm>           
-           | "subst" <thm> | "-"
+REPAIRED (using only library-standard tactics):
+  have f1: "rev (x # xs) = rev xs @ [x]"
+    by simp
 
-OUTPUT
-- Keep branch structure intact; every opened branch must end with a `show` and close.
-- Do NOT invent new constants or fact names; use only identifiers in LOCAL_CONTEXT or the original BLOCK.
-- Output ONLY the revised BLOCK (no fences).
+ORIGINAL (failed — claim is false in general):
+  have f1: "rev xs @ [x] @ rev ys = rev ys @ rev xs @ [x]"
+    by simp
+
+REPAIRED (claim corrected to a true equation):
+  have f1: "rev xs @ [x] @ rev ys = rev xs @ ([x] @ rev ys)"
+    by simp
+</repair_examples>
+
+These constraints make the repair mechanically integrable. Following them lets your patch land cleanly; violating them means the patch will be rejected even if the proof would otherwise be valid.
 """
 
-_LOCAL_USER = """WHAT FAILED:
-{why}
+_LOCAL_USER = """<why_failed>{why}</why_failed>
 
-GOAL:
-{goal}
+<goal>{goal}</goal>
 
-PROOF_CONTEXT (lemma header and all proven statements before the BLOCK - you can reference any named facts from here):
-<<<CONTEXT
+<proof_context>
 {proof_context}
-CONTEXT
+</proof_context>
 
-ISABELLE_ERRORS (learn from previous errors and avoid generating proofs that have similar errors):
+<isabelle_errors>
 {errors}
+</isabelle_errors>
 
-COUNTEREXAMPLE_HINTS (learn from counterexamples of previous goals and avoid generating goals based on the counterexamples):
+<counterexample_hints>
 {ce_hints}
+</counterexample_hints>
 
-PRIOR FAILED BLOCKS (do **not** repeat these ideas/structures; these are bad examples, not templates):
-<<<FAILED_PROOFS
+<prior_failed_blocks>
 {prior_failed_blocks}
-FAILED_PROOFS
+</prior_failed_blocks>
 
-ORIGINAL BLOCK TO REPLACE:
-<<<BLOCK
+<original_block>
 {block_text}
-BLOCK
+</original_block>
 
-Return ONLY the new BLOCK text (no fences)."""
+Return ONLY the replacement block. No fences."""
 
-_BLOCK_SYSTEM = """You are an Isabelle/HOL expert.
-You propose a replacement for the provided Isabelle/Isar proof BLOCK that can be verified in Isabelle/HOL.
-Return ONLY the new BLOCK text (no JSON, no comments). Preserve all text outside the block.
+_BLOCK_SYSTEM = """You are an Isabelle/HOL expert performing a block-level repair.
 
-EDIT SCOPE
-- Edit ONLY inside the BLOCK; keep lemma header unchanged if it's present.
-- You MAY modify the structure (change proof strategy, add intermediate facts)
-- Name all new facts like f1, f2, etc.
-- Keep existing case/fact names/labels stable
-- Maintain indentation and whitespace style of the original.
+You will receive a failing region of an Isabelle proof (a case block, a subproof, or a whole proof) and the errors Isabelle reported. Your job is to produce a replacement region that verifies. You may restructure the region — change strategy, add intermediate facts, switch between calculational and case-split styles — as long as the surrounding code stays intact.
 
-STRICT RULES
-- In `using`/`simp add:`/`unfolding` refer ONLY to named facts (no raw quoted propositions) in PROOF_CONTEXT.
-- Respect meta-targets: inside induction branches prefer `show ?case`; otherwise prefer `show ?thesis`.
-- Your output must be substantively different from every block in PRIOR FAILED BLOCKS.
-- When trivial, close with `by simp` / `by auto` / `by blast` / `by fastforce`, etc, but don't use . as a tactic. 
-- Don't add "qed" if there isn't an open "proof".
-- Don't copy text from PROOF_CONTEXT. 
+<output_rules>
+- Output ONLY the replacement region. No prose, no fences, no comments.
+- Keep the lemma header unchanged. Do NOT add or remove the outer `lemma "..."` line.
+- Keep existing case names stable (e.g. if the original had `case (Cons x xs)`, the repair must also use `Cons` and bind `x` and `xs`).
+- Name any new intermediate facts `f1`, `f2`, etc.
+- Use ONLY identifiers that appear in the proof context, in the original block, or are introduced locally (e.g. `Cons.IH`, `Cons.hyps`). Do NOT invent lemma names — if you cannot name a fact, use `sorry`.
+- An honest `sorry` is much better than a `by ...` that cites a hallucinated fact.
+- Your output must be substantively different from any block in PRIOR FAILED BLOCKS — do not repeat ideas that already failed.
+</output_rules>
 
-LIGHT GRAMMAR (allowed shapes)
-<stmt> ::=
-  "using" <thms>
-| "unfolding" <thms>
-| "have" "<prop>" <proof>
-| "show ?case" <proof>        // inside induction branches
-| "show ?thesis" <proof>      // other branches
-| "from" <thms> <goalstmt>
-| "with" <thms> <goalstmt>
-| "also" | "moreover" | "finally" <goalstmt>
-| "next"                       // to separate branches
-| "let" <pat> "=" <expr> | "define" <name> "where" "<eqn>"
+<allowed_shapes>
+Case block in an induction:
 
-<goalstmt> ::= "have" "<prop>" <proof> | "show" "<prop>" <proof>
+case (Cons x xs)
+show ?case using Cons.IH by simp
 
-<proof> ::=
-  "by" <method>
-| "proof" ["(" <method> ")"] <stmts>* "qed"
-| "sorry"
+Case block needing an intermediate fact:
 
-<method> ::= "simp" ["add:" <thms>] ["only:" <thms>]
-           | "auto" | "blast" | "fastforce" | "clarsimp"
-           | "intro" <thms> | "elim" <thms> | "rule" <thm>
-           | "cases" <expr> | "induction" <var> ["arbitrary:" <vars>]
-           | "subst" <thm> | "-"
+case (Cons x xs)
+have f1: "..." using Cons.IH by simp
+show ?case using f1 by simp
 
-OUTPUT
-- Keep branch structure intact; every opened branch must end with a `show` and close.
-- Do NOT invent new constants or fact names; use only identifiers in LOCAL_CONTEXT or the original BLOCK.
-- Output ONLY the revised BLOCK (no fences).
+Subproof:
+
+proof (induction xs)
+  case Nil
+  show ?case by simp
+next
+  case (Cons x xs)
+  show ?case using Cons.IH by simp
+qed
+</allowed_shapes>
+
+<repair_examples>
+ORIGINAL (calculational chain with hallucinated lemmas):
+  have "rev ((Cons x xs) @ ys) = rev (x # (xs @ ys))" by simp
+  also have "... = rev (xs @ ys) @ [x]" by (simp add: rev_Cons)
+  also have "... = (rev ys @ rev xs) @ [x]" using Cons.IH by simp
+  finally show ?case .
+
+REPAIRED (single tactic using the induction hypothesis):
+  show ?case using Cons.IH by simp
+</repair_examples>
+
+These constraints keep the replacement integrable with the surrounding proof. The repair example shows the most common improvement: collapsing a long, fragile calculational chain into the single tactic Isabelle's automation already handles.
 """
 
-_BLOCK_USER = """WHAT FAILED:
-{why}
+_BLOCK_USER = """<why_failed>{why}</why_failed>
 
-GOAL:
-{goal}
+<goal>{goal}</goal>
 
-PROOF_CONTEXT (lemma header and all proven statements before the BLOCK - you can reference any named facts from here):
-<<<CONTEXT
+<proof_context>
 {proof_context}
-CONTEXT
+</proof_context>
 
-ISABELLE_ERRORS (learn from previous errors and avoid generating proofs that have similar errors):
+<isabelle_errors>
 {errors}
+</isabelle_errors>
 
-COUNTEREXAMPLE_HINTS (learn from counterexamples of previous goals and avoid generating goals based on the counterexamples):
+<counterexample_hints>
 {ce_hints}
+</counterexample_hints>
 
-PRIOR FAILED BLOCKS (do **not** repeat these ideas/structures; these are bad examples, not templates):
-<<<FAILED_PROOFS
+<prior_failed_blocks>
 {prior_failed_blocks}
-FAILED_PROOFS
+</prior_failed_blocks>
 
-ORIGINAL BLOCK TO REPLACE:
-<<<BLOCK
+<original_block>
 {block_text}
-BLOCK
+</original_block>
 
-Return ONLY the new BLOCK text (no fences)."""
+Return ONLY the replacement block. No fences.
+"""
 
 # -----------------------------------------------------------------------------
 # Prompt for OUTLINES  (nudged with ?case and calculational patterns)
 # -----------------------------------------------------------------------------
-# [FIX] two conditions: each obligation gets exactly one outcome & restating any part of goal must match exactly
 SKELETON_PROMPT = """You are an Isabelle/HOL expert. 
+Given a lemma, produce a structured Isar proof outline that verifies in Isabelle.
+Use 'sorry' for any step you are not confident about -- an honest 'sorry' is much better than a confidently wrong tactic.
 
-TASK
-Given a lemma statement, first figure out a proof plan in English INTERNALLY that aims to break the problem into smaller problems so you can divide and conquer. Do NOT reveal your plan. Output ONLY a CLEAN Isabelle/Isar proof outline that corresponds to your English proof plan and is verifiable in Isabelle/HOL. Leave nontrivial reasoning steps as `sorry`.
+<output_rules>
+- Output ONLY Isabelle/Isar. No prose, no code fences, no comments.
+- Produce exactly ONE complete proof: header `lemma "{goal}"`, then proof body, then closing `qed` (unless using a one-line `by` proof)
+- Pick ONE proof shape from the examples below -- do not combine them.
+- Each step gets exactly one outcome: a finisher (`by ...`, `done`) or `sorry`. Never both on the same step.
+- Use ONLY identifiers that appear in the goal or are introduced locally (e.g. `xs`, `Cons.IH`). Do NOT invent lemma names like `rev_Cons` or `assoc_append` -- if you need a fact you cannot name, use `sorry`.
+- When restating part of the goal, preserve its parenthesisation exactly.
+</output_rules>
 
-HARD OUTPUT RULES
-- Output ONLY Isabelle/Isar (no prose, no code fences).
-- Begin at (or immediately after) the exact header:
-  lemma "{goal}"
-- Produce exactly ONE lemma..qed block.
-- Each obligation gets EXACTLY ONE outcome: either a finisher (`by ...`/`done`) OR `sorry` — NEVER both. If you write `by simp` (or any `by ...`/`done`), do NOT also write `sorry` for that same step.
-- When you restate any part of the goal in an `assume`/`have`/`show`, copy its parenthesisation EXACTLY. Do not drop parentheses: `(∀x. P x) ∧ (∀x. Q x)` must NOT become `∀x. P x ∧ ∀x. Q x` (that changes the meaning).
-- Prefer structured proofs with named intermediate facts (e.g., f1, f2) that are then reused.
-- Use the right shell:
-  • Induction: `proof (induction <var>)` → branches `case …` with `show ?case …`.
-  • Exhaustive cases: `proof (cases <expr>)` or `proof (cases rule: <T>.exhaust)` → branches ending with `show ?thesis …`.
-  • Calculational: `proof -` with `have …`, `also`, `moreover`, `finally show ?thesis …`.
-- When trivial, close with `by simp` / `by auto` / `by blast` / `by fastforce`, etc, but don't use . as a tactic. 
-- Do NOT invent constants or fact names; only use variables/tokens present in the goal or locally introduced facts.
+These constraints make the output mechanically integrable with the surrounding proof. 
+Following them lets your repair land cleanly; violating them means the patch will be rejected even if the proof would otherwise be valid.
 
-LIGHT GRAMMAR (allowed shapes)
-lemma "{goal}"
-<refine>* <proof>
-<refine> ::= using <thms> | unfolding <thms> | apply <method>
-<proof>  ::= proof [<method>] <stmts>* qed | by <method> | sorry | done
-<stmts>  ::= fix <vars> | assume <n>: "<prop>" | have "<prop>" <proof>
-             | show ?case <proof> | show ?thesis <proof> | then <goal_stmt>
-             | from <thms> <goal_stmt> | with <thms> <goal_stmt>
-             | also | moreover | finally <goal_stmt> | next
-<goal_stmt> ::= have "<prop>" <proof> | show "<prop>" <proof>
-<method> ::= "induction" <var> ["arbitrary:" <vars>] | "cases" <expr> | "-"
-             | "simp" ["add:" <thms>] ["only:" <thms>] | "auto" | "blast"
-             | "fastforce" | "clarsimp" | "intro" <thms> | "elim" <thms>
-             | "rule" <thm> | "metis" [<thms>] | "(" <method> ")"
+<shape_one_liner>
+Many lemmas close in a single tactic. Try this shape first:
 
-STYLE EXAMPLES
-lemma "{goal}"
+lemma "xs @ [] = xs"
+  by (induct xs) auto
+
+lemma "P ∧ Q ⟶ Q ∧ P"
+  by auto
+</shape_one_liner>
+
+<shape_structured_induction>
+When induction is needed and the cases need separate handling:
+
+lemma "rev (xs @ ys) = rev ys @ rev xs"
 proof (induction xs)
   case Nil
-  have f1: "…"
-    using Nil.prems
-    sorry
-  show ?case
-    using f1
-    sorry
+  show ?case by simp
 next
   case (Cons x xs)
-  have f1: "…"
-    using Cons.prems
-    sorry
-  have f2: "…"
-    using Cons.IH f1
-    sorry
-  show ?case
-    using f2
-    sorry
+  show ?case using Cons.IH by simp
 qed
+</shape_structured_induction>
 
-lemma "{goal}"
+<shape_intermediate_facts>
+When a case genuinely needs intermediate reasoning, introduce named facts.
+Use this only when one tactic does not close the case:
+
+lemma "P xs ⟹ Q xs"
+proof (induction xs)
+  case Nil
+  show ?case sorry
+next
+  case (Cons x xs)
+  have f1: "..." sorry
+  show ?case using f1 Cons.IH sorry
+qed
+</shape_intermediate_facts>
+
+<shape_cases>
+When the goal needs case analysis on a non-inductive value:
+
+lemma "P b ∨ ¬ P b"
 proof (cases b)
   case True
-  have f1: "…"
-    sorry
-  show ?thesis
-    using f1
-    sorry
+  show ?thesis by simp
 next
   case False
-  have f2: "…"
-    sorry
-  show ?thesis
-    using f2
-    sorry
+  show ?thesis by simp
 qed
-
-lemma "{goal}"
-proof -
-  have f1: "A = B"  sorry
-  have f2: "B = C"  using f1  sorry
-  also have "... = D"  sorry
-  finally show ?thesis  using f2  sorry
-qed
+</shape_cases>
 """

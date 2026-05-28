@@ -524,11 +524,19 @@ def _sanitize_outline(text: str, goal: str, *, force_outline: bool) -> str:
         if first_lemma >= 0:
             text = text[first_lemma:]
 
-    # Ensure proof/qed skeleton exists
-    if not PROOF_RE.search(text):
-        text = text.rstrip() + "\nproof\n  sorry\nqed\n"
-    if not QED_RE.search(text):
-        text = text.rstrip() + "\nqed\n"
+    # Ensure proof/qed skeleton exists — UNLESS the lemma is already closed
+    # by a one-line finisher (by ... / done). A one-liner is a complete,
+    # valid proof without proof/qed, so adding them creates a dangling block.
+    _ONELINE_FINISHER_RE = re.compile(
+        r'(?ms)^\s*lemma\s+"[^"]*"\s*\n\s*(?:by\b[^\n]*|done)\s*\Z'
+    )
+    already_complete = bool(_ONELINE_FINISHER_RE.match(text.rstrip() + "\n"))
+
+    if not already_complete:
+        if not PROOF_RE.search(text):
+            text = text.rstrip() + "\nproof\n  sorry\nqed\n"
+        if not QED_RE.search(text):
+            text = text.rstrip() + "\nqed\n"
 
     # Force an outline (remove inline 'by' if requested by caller)
     if force_outline:
