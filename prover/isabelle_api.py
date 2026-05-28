@@ -6,7 +6,18 @@ from typing import List, Tuple, Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 # Re-export these (cli.py and experiments.py import them from here)
-from isabelle_client import start_isabelle_server, get_isabelle_client, IsabelleResponse
+from isabelle_client import start_isabelle_server as _start_isabelle_server_orig, get_isabelle_client, IsabelleResponse
+import platform as _platform
+
+def start_isabelle_server(name="isabelle", log_file=None, port=None):
+    """Cross-platform wrapper: uses Cygwin helper on Windows, standard client elsewhere."""
+    if _platform.system() == "Windows":
+        from prover.windows_isabelle import start_isabelle_server_windows
+        return start_isabelle_server_windows(name=name, log_file=log_file)
+    info, proc = _start_isabelle_server_orig(name=name, log_file=log_file)
+    if info and info.strip():
+        return info, proc
+    raise RuntimeError("Failed to start Isabelle server")
 
 # ------------------ Config (kept light and backwards-compatible) ------------------
 try:
