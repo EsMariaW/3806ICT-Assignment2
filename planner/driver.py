@@ -287,28 +287,28 @@ def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model:
     t_spans = _tactic_spans_topdown(full)
     if not t_spans:
         return full, False
+
+    current_stage = 0  # 0=find first span, 1=have/show, 2=subproof, 3=whole
+    stage_attempts = {1: 0, 2: 0, 3: 0}
+    STAGE_CAPS = {1: 2, 2: 2, 3: 1}
     
-    i = 0
-    while i < len(t_spans) and left_s() > 3.0:
-        span = t_spans[i]
+    while left_s() > 3.0:
+        # Pick the span closest to the actual error
+        span = t_spans[0] if t_spans else None
+        if span is None:
+            break
+
         try:
             st = _print_state_before_hole(isa, session, full, span, trace)
             eff_goal = _effective_goal_from_state(st, goal_text, full, span, trace)
         except Exception as ex:
             if trace:
                 print(f"[repair] Could not extract state/goal before tactic (skipping): {ex}", flush=True)
-            i += 1
-            continue
+            break
 
-        per_budget = min(30.0, max(15.0, left_s() * 0.33))
+        resume = 1 if current_stage <= 1 else 2
 
-        # Guard rails: Cap an individual hole repair attempt at 30 seconds max.
-        # But only enforce a 15-second floor if we actually HAVE 15 seconds left globally!
-        if left_s() > 15.0:
-            per_budget = min(30.0, max(15.0, per_budget))
-        else:
-            per_budget = left_s() # Give it everything that's left over
-
+        per_budget = min(30.0, left_s() * 0.5) if left_s() > 15.0 else left_s()
         # If the driver has effectively run out of time entirely, skip the attempt
         if per_budget <= 2.0:
             if trace:
@@ -322,40 +322,59 @@ def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model:
                 full_text=full, hole_span=span, goal_text=eff_goal, model=model,
                 isabelle=isa, session=session, repair_budget_s=per_budget,
                 max_ops_to_try=max_repairs_per_hole, beam_k=2,
-                allow_whole_fallback=False, trace=trace, resume_stage=0,
+                allow_whole_fallback=False, trace=trace, resume_stage=resume,
             )
             if trace:
                 print(f"[topdown] patched==full: {patched == full}, verified: {verified}, stage: {stage_info}", flush=True)
-        except (TimeoutError, _FuturesTimeout, ValueError) as ex:
-            # TimeoutError: verifier timed out; ValueError: isabelle_client returned unexpected/empty response
-            if trace:
-                print(f"[repair] CEGIS repair aborted (treat as failed): {type(ex).__name__}: {ex}", flush=True)
-            return full, False
+        # except (TimeoutError, _FuturesTimeout, ValueError) as ex:
+        #     # TimeoutError: verifier timed out; ValueError: isabelle_client returned unexpected/empty response
+        #     if trace:
+        #         print(f"[repair] CEGIS repair aborted (treat as failed): {type(ex).__name__}: {ex}", flush=True)
+        #     return full, False
         except Exception as ex:
             if trace:
-                print(f"[repair] CEGIS repair crashed (treat as failed): {type(ex).__name__}: {ex}", flush=True)
-            return full, False
+                print(f"[repair] CEGIS repair aborted/crashed (treat as failed): {type(ex).__name__}: {ex}", flush=True)
+            break
 
         if patched != full:
             full = patched
-            if verified:
-                if _verify_full_proof(isa, session, full):
-                    return full, True
+            if verified and _verify_full_proof(isa, session, full):
+                return full, True
                 
-            # Only perform sorry minimization if we aren't mid-stream on a partial block chain optimization
-            if "-partial" not in stage_info:
-                full2, opened = _open_minimal_sorries(isa, session, full, trace)
-                if opened:
-                    full = full2
-
+            # Partial progress — open sorries and reset stage
+            full2, opened = _open_minimal_sorries(isa, session, full, trace)
+            if opened:
+                full = full2
             t_spans = _tactic_spans_topdown(full)
-            i = 0
+            current_stage = 1  # restart from stage 1 on the new proof
+            stage_attempts = {1: 0, 2: 0, 3: 0}
             continue
 
-        i += 1
+        # No progress — escalate
+        current_stage = max(current_stage, resume)
+        stage_attempts[current_stage] = stage_attempts.get(current_stage, 0) + 1
+        if trace:
+            print(f"[repair] Stage {current_stage} attempt {stage_attempts[current_stage]}/{STAGE_CAPS[current_stage]} failed", flush=True)
 
-    if trace:
-        print(f"Full:\n{full}", flush=True)
+        if stage_attempts[current_stage] >= STAGE_CAPS[current_stage]:
+            current_stage += 1
+            if trace:
+                print(f"[repair] Escalating to stage {current_stage}", flush=True)
+
+        if current_stage >= 3:
+            # Stage 3: whole proof regeneration
+            if left_s() > 5.0:
+                new_full, ok_re, _ = regenerate_whole_proof(
+                    full_text=full, goal_text=goal_text, model=model,
+                    isabelle=isa, session=session, budget_s=min(40.0, left_s() * 0.8),
+                    trace=trace, prior_outline_text=full
+                )
+                if ok_re or new_full != full:
+                    full = new_full
+                    if ok_re or _verify_full_proof(isa, session, full):
+                        return full, True
+            break
+
     return full, False
 
 
