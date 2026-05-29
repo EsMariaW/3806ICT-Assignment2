@@ -165,10 +165,10 @@ def _generate_simple(prompt: str, model: Optional[str] = None, *, timeout_s: Opt
     display_model = m
     dump = os.getenv("LLM_DUMP", "").strip().lower() in ("1", "true", "yes", "on")
 
-    # if dump:
-    #     print(f"{'='*60}", flush=True)
-    #     print(f"[Repair] LLM Prompt:\n{prompt.rstrip()}", flush=True)
-    #     print(f"{'-'*60}", flush=True)
+    if dump:
+        print(f"{'='*60}", flush=True)
+        print(f"[Repair] LLM Prompt:\n{prompt.rstrip()}", flush=True)
+        print(f"{'-'*60}", flush=True)
     
     if m.startswith("hf:"):
         raw = _hf_generate(prompt, m[3:], timeout)
@@ -1018,7 +1018,7 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
     
     # If we exited due to a timer expiration, let the caller know it was an invalid run
     if timed_out and best_text_so_far == current_text:
-        print(f"Timed out")
+        print(f"Allowed time for _repair_block ended")
         return current_text, False
 
     # Always return a tuple matching (patched_text, verified_fully)

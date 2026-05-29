@@ -1343,7 +1343,8 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             # Try CEGIS repairs
             current_stage = repair_progress.get(hole_key, 0)
             if current_stage > 0 and repairs and left_s() > 6:
-                print(f"[Driver] Entering repair stage {current_stage} for hole @{hole_key}...", flush=True)
+                if trace:
+                    print(f"[Driver] Entering repair stage {current_stage} for hole @{hole_key}...", flush=True)
                 try:
                     state = _print_state_before_hole(isa, session, full, span, trace)
                     eff_goal = _effective_goal_from_state(state, goal_text, full, span, trace)
