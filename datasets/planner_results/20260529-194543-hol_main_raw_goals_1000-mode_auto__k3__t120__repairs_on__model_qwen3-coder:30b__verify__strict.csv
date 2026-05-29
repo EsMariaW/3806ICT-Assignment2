@@ -1,0 +1,101 @@
+goal,success,elapsed_s,mode,model,outline_chars,fills,failed_holes,had_sorry,verified_ok
+length (zip xs ys) = min (length xs) (length ys),True,7.6059,auto,qwen3-coder:30b,67,0,0,False,True
+(Sumr f = Sumr g) \<Longrightarrow> f = g,False,120.9410,auto,qwen3-coder:30b,192,0,0,True,True
+Suc m + n = m + Suc n,True,7.6373,auto,qwen3-coder:30b,40,0,0,False,True
+(\<exists>i < Suc n. P i) = (P 0 \<or> (\<exists>i < n. P(Suc i))),True,66.7965,auto,qwen3-coder:30b,194,1,0,False,True
+length(splice xs ys) = length xs + length ys,True,7.5801,auto,qwen3-coder:30b,63,0,0,False,True
+(False \<longrightarrow> P) = True,True,7.5957,auto,qwen3-coder:30b,53,0,0,False,True
+P k \<Longrightarrow> \<forall>x. P x \<longrightarrow> (\<exists>y. P y \<and> \<not> f y \<le> f x) \<Longrightarrow> \<exists>y. P y \<and> \<not> f y < f k + n,False,155.3756,auto,qwen3-coder:30b,180,0,0,True,True
+bij_betw f A B \<Longrightarrow> bij_betw (inv_into A f) B A,False,65.5722,auto,qwen3-coder:30b,807,2,0,False,False
+ys \<noteq> Nil \<Longrightarrow> lexordp xs (xs @ ys),False,7.5877,auto,qwen3-coder:30b,108,0,0,False,False
+f \<equiv> wfrec R F \<Longrightarrow> wf R \<Longrightarrow> f a = F (cut f R a) a,True,49.8645,auto,qwen3-coder:30b,115,1,0,False,True
+F {x} = x,False,29.1283,auto,qwen3-coder:30b,28,0,1,False,False
+{a..b} = {} \<longleftrightarrow> (\<not> a \<le> b),False,149.6322,auto,qwen3-coder:30b,69,0,0,True,True
+list_all2 P (map f as) bs = list_all2 (\<lambda>x y. P (f x) y) as bs,False,90.4811,auto,qwen3-coder:30b,194,0,1,False,False
+card A = 0 \<longleftrightarrow> A = {} \<or> \<not> finite A,True,9.5610,auto,qwen3-coder:30b,80,0,0,False,True
+a \<noteq> b \<and> c \<noteq> d \<longleftrightarrow> a * c + b * d \<noteq> a * d + b * c,False,134.5168,auto,qwen3-coder:30b,321,0,0,True,True
+x = y \<Longrightarrow> x \<le> y,False,31.8452,auto,qwen3-coder:30b,32,0,1,False,False
+0 < Suc n div 2,False,100.5836,auto,qwen3-coder:30b,219,0,1,False,False
+fNot (fAll R) \<longleftrightarrow> fEx (fComp R),False,158.3468,auto,qwen3-coder:30b,344,0,0,True,True
+r x y \<Longrightarrow> r\<^sup>*\<^sup>* x y,True,7.5716,auto,qwen3-coder:30b,64,0,0,False,True
+(i < j) \<Longrightarrow> (\<And>i. j = Suc i \<Longrightarrow> P i) \<Longrightarrow> (\<And>i. i < j \<Longrightarrow> P (Suc i) \<Longrightarrow> P i) \<Longrightarrow> P i,False,147.9660,auto,qwen3-coder:30b,192,0,0,True,True
+xs \<noteq> [] \<Longrightarrow> last(x#xs) = last xs,True,7.4654,auto,qwen3-coder:30b,72,0,0,False,True
+bi_unique A = (left_unique A \<and> right_unique A),True,35.6203,auto,qwen3-coder:30b,355,0,0,False,True
+(r =o r') = (r \<le>o r' \<and> r' \<le>o r),False,7.3121,auto,qwen3-coder:30b,98,0,0,False,False
+(\<exists>x\<in>A. a = x \<and> P x) \<longleftrightarrow> a \<in> A \<and> P a,True,7.6714,auto,qwen3-coder:30b,98,0,0,False,True
+\<lbrakk> lexordp (xs @ us) (xs @ vs); \<forall>a. \<not> a < a \<rbrakk> \<Longrightarrow> lexordp us vs,False,9.8922,auto,qwen3-coder:30b,159,0,0,False,False
+antisym r,False,32.1558,auto,qwen3-coder:30b,46,0,1,False,False
+(finite A) \<Longrightarrow> (A \<noteq> {}) \<Longrightarrow> (finite B) \<Longrightarrow> (B \<noteq> {}) \<Longrightarrow> inf (\<Squnion>\<^sub>f\<^sub>i\<^sub>nA) (\<Squnion>\<^sub>f\<^sub>i\<^sub>nB) = \<Squnion>\<^sub>f\<^sub>i\<^sub>n{inf a b|a b. a \<in> A \<and> b \<in> B},False,156.4843,auto,qwen3-coder:30b,1273,0,0,False,False
+even (of_nat n) \<longleftrightarrow> even n,True,7.5486,auto,qwen3-coder:30b,63,0,0,False,True
+of_bool False = 0,True,7.4799,auto,qwen3-coder:30b,36,0,0,False,True
+(P \<or> P) = P,True,7.5715,auto,qwen3-coder:30b,34,0,0,False,True
+\<lbrakk>Card_order r; A \<noteq> {}\<rbrakk> \<Longrightarrow> r \<le>o |A \<times> (Field r)|,False,6.6542,auto,qwen3-coder:30b,149,0,0,False,False
+case_sum f g \<circ> Inl = f,True,9.6135,auto,qwen3-coder:30b,47,0,0,False,True
+(1 \<le> b / a) = ((0 < a \<and> a \<le> b) \<or> (a < 0 \<and> b \<le> a)),False,122.5639,auto,qwen3-coder:30b,372,0,0,True,True
+- a < 1 \<longleftrightarrow> - 1 < a,False,39.5799,auto,qwen3-coder:30b,56,0,1,False,False
+a \<le> b \<Longrightarrow> b = c \<Longrightarrow> a \<le> c,True,7.6161,auto,qwen3-coder:30b,80,0,0,False,True
+equiv A r \<Longrightarrow> a \<in> A \<Longrightarrow> a \<in> r``{a},False,131.8989,auto,qwen3-coder:30b,275,0,1,False,False
+(m \<le> n) \<Longrightarrow> drop m (xs[n := x]) = (drop m xs)[n-m := x],False,116.0542,auto,qwen3-coder:30b,191,0,0,True,True
+integer_of_nat 0 = 0,True,36.1978,auto,qwen3-coder:30b,63,1,0,False,True
+lessThan (Suc k) = atMost k,True,9.5768,auto,qwen3-coder:30b,46,0,0,False,True
+override_on f g (insert x X) = (override_on f g X)(x:=g x),False,121.0578,auto,qwen3-coder:30b,472,0,1,False,False
+A \<times> {..m} = (SIGMA i:A.{..m - i}) \<union> (SIGMA i:A.{m - i<..m}),False,121.8441,auto,qwen3-coder:30b,250,0,0,True,True
+sub Num.One Num.One = 0,False,30.1226,auto,qwen3-coder:30b,63,0,1,False,False
+(right_total A) \<Longrightarrow> (bi_unique B) \<Longrightarrow> ((A ===> B) ===> (A ===> B) ===> (=)) (\<lambda>f g. \<forall>x\<in>Collect(Domainp A). f x = g x) (=),False,8.3678,auto,qwen3-coder:30b,222,0,0,False,False
+"equiv A r \<Longrightarrow> X \<in> A//r \<Longrightarrow> x \<in> X \<Longrightarrow> (x, y) \<in> r \<Longrightarrow> y \<in> X",True,70.4764,auto,qwen3-coder:30b,94,1,0,False,True
+\<lbrakk>Cnotzero r1; Cinfinite r2\<rbrakk> \<Longrightarrow> cinfinite (r1 *c r2),False,7.4689,auto,qwen3-coder:30b,136,0,0,False,False
+n \<noteq> 0 \<Longrightarrow> set (replicate n x) = {x},True,7.4933,auto,qwen3-coder:30b,75,0,0,False,True
+finite A \<Longrightarrow> r \<subseteq> A \<times> A \<Longrightarrow> X \<in> A//r \<Longrightarrow> finite X,False,42.6928,auto,qwen3-coder:30b,174,0,1,False,False
+(finite A) \<Longrightarrow> (A \<noteq> {}) \<Longrightarrow> Min A \<in> A,True,7.5146,auto,qwen3-coder:30b,95,0,0,False,True
+(a + b :: nat)^n = (\<Sum>k\<le>n. (of_nat (n choose k)) * a^k * b^(n - k)),False,172.5296,auto,qwen3-coder:30b,453,0,0,True,True
+finite A \<Longrightarrow> finite B \<Longrightarrow> sum f (A \<union> B) = sum f A + sum f B - sum f (A \<inter> B),False,119.6355,auto,qwen3-coder:30b,331,0,0,True,True
+b \<noteq> 0 \<Longrightarrow> euclidean_size a \<le> euclidean_size (b * a),True,51.5464,auto,qwen3-coder:30b,248,1,0,False,True
+mono f \<Longrightarrow> bdd_below A \<Longrightarrow> bdd_below (f`A),False,120.3763,auto,qwen3-coder:30b,340,0,1,False,False
+Pair x \<circ>\<rightarrow> f = f x,False,6.1746,auto,qwen3-coder:30b,89,0,0,False,False
+f ` {} = {},True,7.4296,auto,qwen3-coder:30b,30,0,0,False,True
+"wfp_on A (\<lambda>x y. (x, y) \<in> r) \<longleftrightarrow> wf_on A r",True,76.9288,auto,qwen3-coder:30b,324,0,0,False,True
+atLeast (0::nat) = UNIV,True,7.4377,auto,qwen3-coder:30b,42,0,0,False,True
+"refl_on A r \<Longrightarrow> (a, b) \<in> r \<Longrightarrow> a \<in> A \<and> b \<in> A",True,39.6803,auto,qwen3-coder:30b,79,0,0,False,True
+(i < length (transpose xs)) \<Longrightarrow> transpose xs ! i = map (\<lambda>xs. xs ! i) (filter (\<lambda>ys. i < length ys) xs),False,112.8670,auto,qwen3-coder:30b,240,0,0,True,True
+(Well_order r) \<Longrightarrow> (Well_order r') \<Longrightarrow> (finite(Field r)) \<Longrightarrow> (\<not>finite(Field r')) \<Longrightarrow> r <o r',False,7.4656,auto,qwen3-coder:30b,207,0,0,False,False
+(\<Sum>i\<in>I. x^(m+i)) = x^m * (\<Sum>i\<in>I. x^i),False,116.9168,auto,qwen3-coder:30b,299,0,0,True,True
+(if Q then x else y) = b \<longleftrightarrow> (Q \<longrightarrow> x = b) \<and> (\<not> Q \<longrightarrow> y = b),True,7.8489,auto,qwen3-coder:30b,135,0,0,False,True
+(finite A) \<Longrightarrow> F g (A - {x. g x = z}) = F g A,False,122.9097,auto,qwen3-coder:30b,233,0,0,True,True
+normalize a * unit_factor a = a,True,7.4471,auto,qwen3-coder:30b,50,0,0,False,True
+(Card_order r) \<Longrightarrow> (Card_order q) \<Longrightarrow> (Cinfinite r') \<Longrightarrow> (Cinfinite q') \<Longrightarrow> (r <o r') \<Longrightarrow> (q <o q') \<Longrightarrow> r +c q <o r' +c q',False,7.8624,auto,qwen3-coder:30b,260,0,0,False,False
+numeral x ^ n < of_int a \<longleftrightarrow> numeral x ^ n < a,False,112.4543,auto,qwen3-coder:30b,148,0,0,True,True
+case_option g h (yield xq) = case_list g (\<lambda>x. curry h x \<circ> lazy_sequence_of_list) (list_of_lazy_sequence xq),False,85.9661,auto,qwen3-coder:30b,236,0,1,False,False
+A \<subseteq> C \<Longrightarrow> D \<subseteq> B \<Longrightarrow> A - B \<subseteq> C - D,True,9.6688,auto,qwen3-coder:30b,110,0,0,False,True
+n < length xs \<Longrightarrow> last (drop n xs) = last xs,True,7.5939,auto,qwen3-coder:30b,77,0,0,False,True
+Pow (- A) = {- B | B. A \<in> Pow B},True,9.6135,auto,qwen3-coder:30b,55,0,0,False,True
+A \<subseteq> B \<Longrightarrow> q \<subseteq> r \<Longrightarrow> wf_on B r \<le> wf_on A q,False,108.1215,auto,qwen3-coder:30b,206,0,0,True,True
+\<exists>!x. P x \<Longrightarrow> P (THE_default d P),False,40.1042,auto,qwen3-coder:30b,105,0,1,False,False
+prod int {i..j} = \<Prod>{int i..int j},False,172.7079,auto,qwen3-coder:30b,137,0,0,True,True
+of_int a \<le> (- numeral x) ^ n \<longleftrightarrow> a \<le> (- numeral x) ^ n,False,80.2451,auto,qwen3-coder:30b,239,0,1,False,False
+(a \<in> \<nat>) \<Longrightarrow> (b \<in> \<nat>) \<Longrightarrow> (b \<le> a) \<Longrightarrow> a - b \<in> \<nat>,False,40.1602,auto,qwen3-coder:30b,174,0,1,False,False
+abst isom x = abst isom y \<longleftrightarrow> x = y,False,110.0781,auto,qwen3-coder:30b,209,0,0,True,True
+(finite B) \<Longrightarrow> (B \<subseteq> A) \<Longrightarrow> sum f (A - B) = sum f A - sum f B,False,46.4110,auto,qwen3-coder:30b,361,1,0,False,False
+Domain (R\<^sup>*) = UNIV,True,7.5653,auto,qwen3-coder:30b,44,0,0,False,True
+A \<subseteq> C \<Longrightarrow> B \<subseteq> D \<Longrightarrow> A \<inter> B \<subseteq> C \<inter> D,True,9.6342,auto,qwen3-coder:30b,124,0,0,False,True
+vimage id = id,True,7.4933,auto,qwen3-coder:30b,33,0,0,False,True
+m \<le> n \<Longrightarrow> insert m {Suc m..n} = {m ..n},True,9.5988,auto,qwen3-coder:30b,76,0,0,False,True
+a = c \<and> b = d \<and> P \<longleftrightarrow> Q \<Longrightarrow> iso_tuple_cons isom a b = iso_tuple_cons isom c d \<and> P \<longleftrightarrow> Q,False,34.7608,auto,qwen3-coder:30b,171,0,1,False,False
+bij_betw h S T \<Longrightarrow> F (\<lambda>x. g (h x)) S = F g T,False,200.5100,auto,qwen3-coder:30b,297,0,0,True,True
+"xz \<in> r O s \<Longrightarrow> (\<And>x y z. xz = (x, z) \<Longrightarrow> (x, y) \<in> r \<Longrightarrow> (y, z) \<in> s \<Longrightarrow> P) \<Longrightarrow> P",True,9.8808,auto,qwen3-coder:30b,184,0,0,False,True
+"(a, b) \<in> (P \<union> Q)\<^sup>* \<Longrightarrow> \<forall>x y. (x, b) \<in> P\<^sup>* \<longrightarrow> (y, x) \<in> Q \<longrightarrow> y = x \<Longrightarrow> (a, b) \<in> P\<^sup>*",True,61.3028,auto,qwen3-coder:30b,241,1,0,False,True
+Domain (\<Union>S) = (\<Union>A\<in>S. Domain A),True,9.5707,auto,qwen3-coder:30b,67,0,0,False,True
+(m \<ge> 1) \<Longrightarrow> card {l::nat list. length l = m \<and> sum_list l = N} = card {l. length l = (m - 1) \<and> sum_list l = N} + card {l. length l = m \<and> sum_list l + 1 = N},False,120.4756,auto,qwen3-coder:30b,381,1,0,True,True
+bij_betw f A B \<Longrightarrow> inj_on f A,True,40.3048,auto,qwen3-coder:30b,73,1,0,False,True
+xs = [] \<Longrightarrow> last(x#xs) = x,True,7.4516,auto,qwen3-coder:30b,59,0,0,False,True
+P \<le> Q \<and> R \<Longrightarrow> R \<and> (P x y \<longrightarrow> Q x y),True,9.7704,auto,qwen3-coder:30b,96,0,0,False,True
+uminus 0 = (0::integer),True,7.4856,auto,qwen3-coder:30b,42,0,0,False,True
+gcd a b dvd lcm a b,False,116.9030,auto,qwen3-coder:30b,225,0,1,False,False
+(finite A) \<Longrightarrow> bdd_below A,False,184.9473,auto,qwen3-coder:30b,159,1,0,True,True
+a - b = c - d \<Longrightarrow> a \<le> b \<longleftrightarrow> c \<le> d,False,115.0258,auto,qwen3-coder:30b,178,0,0,True,True
+"divmod (num.Bit0 m) (num.Bit1 n) = (if m \<le> n then (0, numeral (num.Bit0 m)) else divmod_step (numeral (num.Bit1 n)) (divmod (num.Bit0 m) (num.Bit0 (num.Bit1 n))))",True,7.5624,auto,qwen3-coder:30b,185,0,0,False,True
+0 dvd a \<Longrightarrow> a = 0,False,119.4427,auto,qwen3-coder:30b,252,0,1,False,False
+The (case_prod P) = (THE xy. P (fst xy) (snd xy)),True,51.9922,auto,qwen3-coder:30b,91,1,0,False,True
+of_int (fact n) = fact n,True,7.5070,auto,qwen3-coder:30b,43,0,0,False,True
+(f`A = A') \<Longrightarrow> (B' \<subseteq> A') \<Longrightarrow> f `((inv_into A f)`B') = B',False,127.9246,auto,qwen3-coder:30b,1024,0,1,False,False
+(equiv A r) \<Longrightarrow> (f respects r) \<Longrightarrow> (X \<in> A//r) \<Longrightarrow> (\<And>x. x \<in> A \<Longrightarrow> f x \<in> B) \<Longrightarrow> (\<Union>x \<in> X. f x) \<in> B,False,131.4960,auto,qwen3-coder:30b,420,0,0,True,True
+f -` (f ` A) = {y. \<exists>x\<in>A. f x = f y},False,125.2893,auto,qwen3-coder:30b,543,0,1,False,False

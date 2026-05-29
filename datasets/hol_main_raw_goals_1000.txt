@@ -1,0 +1,1000 @@
+eventually (P \<circ> f) F \<longleftrightarrow> eventually P (filtermap f F)
+0 < 1 + \<bar>x\<bar>
+Collect P = {} \<longleftrightarrow> (\<forall>x. \<not> P x)
+- a \<le> 1 \<longleftrightarrow> - 1 \<le> a
+Domain {(x, y). P x y} = {x. \<exists>y. P x y}
+(r a b) \<Longrightarrow> (r\<^sup>*\<^sup>* b c) \<Longrightarrow> r\<^sup>+\<^sup>+ a c
+(False = P) = (\<not> P)
+filtercomap f (filtermap f F) \<ge> F
+A \<le> B \<Longrightarrow> listsp A \<le> listsp B
+map_prod (\<lambda>x. x) (\<lambda>y. y) = (\<lambda>z. z)
+- (a * b) = a * - b
+(x, y) \<in> R \<Longrightarrow> (y, z) \<in> R ^^ n \<Longrightarrow> (x, z) \<in> R ^^ Suc n
+sym r \<Longrightarrow> sym (inv_image r f)
+(transp P) \<Longrightarrow> ?L = ?R
+lcm a 1 = normalize a
+(r =o r') \<Longrightarrow> r' =o r
+pred_prod P Q xy \<longleftrightarrow> P (fst xy) \<and> Q (snd xy)
+card S = 2 \<longleftrightarrow> (\<exists>x\<in>S. \<exists>y\<in>S. x \<noteq> y \<and> (\<forall>z\<in>S. z = x \<or> z = y))
+(\<forall>xs \<in> set xss. distinct xs) \<Longrightarrow> distinct (product_lists xss)
+x\<^sup>2 = y\<^sup>2 \<Longrightarrow> 0 \<le> x \<Longrightarrow> 0 \<le> y \<Longrightarrow> x = y
+(\<And>x y. x \<triangle> y \<le> x) \<Longrightarrow> (\<And>x y. x \<triangle> y \<le> y) \<Longrightarrow> (\<And>x y z. x \<le> y \<Longrightarrow> x \<le> z \<Longrightarrow> x \<le> y \<triangle> z) \<Longrightarrow> x \<sqinter> y = x \<triangle> y
+distinct xs \<Longrightarrow> x \<in> set xs \<Longrightarrow> (\<exists>!i. i < length xs \<and> xs ! i = x)
+\<lbrakk> f \<subseteq>\<^sub>m h; g \<subseteq>\<^sub>m h \<rbrakk> \<Longrightarrow> f ++ g \<subseteq>\<^sub>m h
+dropWhile P (xs @ ys) = (if \<forall>x\<in>set xs. P x then dropWhile P ys else dropWhile P xs @ ys)
+0 < a \<Longrightarrow> b < c \<Longrightarrow> b < a + c
+chain\<^sub>\<subseteq> C = subset.chain UNIV C
+(z \<le> (0::int)) \<Longrightarrow> ?L = ?R
+S \<noteq> {} \<Longrightarrow> bdd_below S \<Longrightarrow> Inf S = Sup {x. \<forall>s\<in>S. x \<le> s}
+a \<le> 0 \<Longrightarrow> b < 0 \<Longrightarrow> a + b < 0
+(P \<longrightarrow> Q \<or> R) \<longleftrightarrow> (\<not> Q \<longrightarrow> P \<longrightarrow> R)
+(\<And>n. n \<in> A \<Longrightarrow> \<exists>m\<in>B. f n \<le> g m) \<Longrightarrow> (\<Squnion>n\<in>A. f n) \<le> (\<Squnion>n\<in>B. g n)
+(\<forall>\<^sub>Fx in F. P x \<longrightarrow> Q x) \<Longrightarrow> (\<exists>\<^sub>Fx in F. P x) \<Longrightarrow> \<exists>\<^sub>Fx in F. Q x
+0 < Suc n
+(A \<Longrightarrow> select False) \<equiv> Trueprop (\<not> A)
+m \<ge> n \<Longrightarrow> gcd (m - n) n = gcd m n
+xs \<noteq> [] \<Longrightarrow> take (Suc n) xs = hd xs # take n (tl xs)
+Refl r \<Longrightarrow> a \<in> Field r \<Longrightarrow> a \<in> under r a
+X \<subseteq> Collect (case_prod (in_rel Y)) \<Longrightarrow> (X \<subseteq> Y \<Longrightarrow> R) \<Longrightarrow> R
+a mod b + a div b * b = a
+numeral x ^ n \<le> of_int a \<longleftrightarrow> numeral x ^ n \<le> a
+(x \<noteq> 1) \<Longrightarrow> (\<Sum>i<n. x ^ i) = (x ^ n - 1) / (x - 1::'a::field)
+k \<le> j \<Longrightarrow> (j + i) - k = (j - k) + i
+x \<le> 0 \<Longrightarrow> y < 0 \<Longrightarrow> 0 \<le> x / y
+k + m \<le> k + n \<longleftrightarrow> m \<le> n
+\<lbrakk>\<forall>i < length xs. P(xs!i); x \<in> set xs\<rbrakk> \<Longrightarrow> P x
+of_int (w + z) = of_int w + of_int z
+a ^ (m + n) = a ^ m * a ^ n
+|Func (A \<times> B) C| =o |Func A (Func B C)|
+\<lbrakk>Q; Rel (=) P Q\<rbrakk> \<Longrightarrow> P
+trans (r\<^sup>*)
+max (min x y) y = y
+normalize 1 = 1
+(finite A) \<Longrightarrow> (\<And>y. y \<in> A \<Longrightarrow> y \<le> x) \<Longrightarrow> (x \<in> A) \<Longrightarrow> Max A = x
+euclidean_size 1 = 1
+m \<le> n \<Longrightarrow> fact m \<le> (fact n :: nat)
+\<Inter>A \<union> \<Inter>B \<subseteq> \<Inter>(A \<inter> B)
+(\<And>x y z. f (f x y) z = f x (f y z)) \<Longrightarrow> combine_options f (combine_options f x y) z = combine_options f x (combine_options f y z)
+2 = a\<^sub>3
+m \<le> n \<Longrightarrow> mono f \<Longrightarrow> (f ^^ n) \<top> \<le> (f ^^ m) \<top>
+(\<exists>x\<in>A. x = a) \<longleftrightarrow> a \<in> A
+(\<lambda>x. x \<in> R) \<le> (\<lambda>x. x \<in> S) \<longleftrightarrow> R \<subseteq> S
+a < 0 \<Longrightarrow> b < 0 \<Longrightarrow> a + b < 0
+P = (=) x \<Longrightarrow> The P = x
+0 ^ Suc n = 0
+n mod length xs = 0 \<Longrightarrow> rotate n xs = xs
+(inj f) \<Longrightarrow> remdups_adj (map f xs) = map f (remdups_adj xs)
+f ^^ (m + n) = f ^^ m \<circ> f ^^ n
+nths [] A = []
+(list_all2 A ===> list_all2 A) butlast butlast
+(A \<le> B) \<Longrightarrow> rel_filter A \<le> rel_filter B
+inverse 1 = 1
+Cnotzero r \<Longrightarrow> cone \<le>o r
+(fold_graph f z A y) \<Longrightarrow> finite A
+a \<noteq> 0 \<Longrightarrow> a / a = 1
+A - List.coset xs = set (List.filter (\<lambda>x. x \<in> A) xs)
+(\<And>x. \<not> P x \<Longrightarrow> \<exists>y. V y < V x \<and> \<not> P y) \<Longrightarrow> P x
+0 \<le> (0::integer) \<longleftrightarrow> True
+refl_on A r \<Longrightarrow> a \<in> A \<Longrightarrow> (a, a) \<in> r
+0 \<le> x * x + y * y
+(P ^^ Suc n) x z \<Longrightarrow> \<exists>y. P x y \<and> (P ^^ n) y z
+m \<le> Suc n \<longleftrightarrow> m \<le> n \<or> m = Suc n
+(\<And>x. x \<in> A \<Longrightarrow> B x b) \<Longrightarrow> (\<Sqinter>x\<in>A. B x) b
+(equiv A r) \<Longrightarrow> (\<And>y z. y \<in> A \<Longrightarrow> z \<in> A \<Longrightarrow> f y z = f z y) \<Longrightarrow> (\<And>y z w. w \<in> A \<Longrightarrow> (y,z) \<in> r \<Longrightarrow> f w y = f w z) \<Longrightarrow> f respects2 r
+(b dvd a) \<Longrightarrow> normalize (a div b) = normalize a div normalize b
+\<exists>\<^sub>Fx in F. P x \<Longrightarrow> \<exists>x. P x
+(Card_order fbd) \<Longrightarrow> (\<And>x. |fset x| \<le>o fbd) \<Longrightarrow> (\<And>x. |gset x| \<le>o gbd) \<Longrightarrow> |\<Union>(fset ` gset x)| \<le>o gbd *c fbd
+0 \<le> x \<Longrightarrow> y < 0 \<Longrightarrow> x / y \<le> 0
+dom m1 \<inter> dom m2 = {} \<Longrightarrow> m1 ++ m2 = m2 ++ m1
+rel_fun (rel_prod A B) A fst fst
+wf r \<Longrightarrow> p \<subseteq> r \<Longrightarrow> wf p
+\<bar>lcm i j\<bar> = lcm i j
+r \<subseteq> s \<Longrightarrow> Chains r \<subseteq> Chains s
+HOL.equal P Q \<longleftrightarrow> P \<le> Q \<and> Q \<le> P
+(\<And>X. X \<in> C \<Longrightarrow> A \<in> X) \<Longrightarrow> A \<in> \<Inter>C
+unit_factor a dvd a
+\<forall>x. (x,x) \<notin> r \<Longrightarrow> (xs,xs) \<notin> lexord r
+equivp (=)
+\<not> n < m \<Longrightarrow> n < Suc m \<Longrightarrow> m = n
+(r OO s) OO t = r OO (s OO t)
+wf R \<Longrightarrow> wfrec R F a = F (cut (wfrec R F) R a) a
+(k < card A) \<Longrightarrow> card {xs. length xs = k \<and> distinct xs \<and> set xs \<subseteq> A} = \<Prod>{card A - k + 1 .. card A}
+totalp_on A R\<inverse>\<inverse> = totalp_on A R
+list_all2 P (xs @ ys) zs = (\<exists>us vs. zs = us @ vs \<and> length us = length xs \<and> length vs = length ys \<and> list_all2 P xs us \<and> list_all2 P ys vs)
+transp P \<Longrightarrow> sorted_wrt P (x # y # zs) = (P x y \<and> sorted_wrt P (y # zs))
+\<not>(P\<and>Q) \<Longrightarrow> \<not>P \<or> \<not>Q
+a + b < b \<longleftrightarrow> a < 0
+\<lambda>x. y \<equiv> COMBK y
+\<lbrakk>pairwise P A; \<And>x y. P x y \<Longrightarrow> Q x y; B \<subseteq> A\<rbrakk> \<Longrightarrow> pairwise Q B
+l < length xs \<Longrightarrow> Random.pick (map (Pair 1) xs) (natural_of_nat l) = nth xs l
+(f1 \<in> Func (A \<times> B) C) \<Longrightarrow> (f2 \<in> Func (A \<times> B) C) \<Longrightarrow> curr A f1 = curr A f2 \<longleftrightarrow> f1 = f2
+(k \<noteq> 0) \<Longrightarrow> m dvd t \<equiv> k * m dvd k * t
+wf (R \<union> S) = wf (R O R \<union> S O R \<union> S)
+wf pair_less
+(finite F) \<Longrightarrow> (\<And>y. y \<in> F \<Longrightarrow> finite ((h -` {y}) \<inter> A)) \<Longrightarrow> finite (h -` F \<inter> A)
+(n > 0) \<Longrightarrow> (card y \<le> n - 1) \<Longrightarrow> card (insert x y) \<le> n
+k \<le> j \<Longrightarrow> (i \<le> j - k) = (i + k \<le> j)
+eval (single x) y \<Longrightarrow> (x = y \<Longrightarrow> P) \<Longrightarrow> P
+(fst \<circ> (\<lambda>x. (x, x))) z = id z
+(|A| =o |{}|) \<Longrightarrow> A = {}
+totalp_on A R \<Longrightarrow> B \<subseteq> A \<Longrightarrow> totalp_on B R
+length (dropWhile P xs) \<le> length xs
+(stable r) \<Longrightarrow> (|A| <o r) \<Longrightarrow> (\<And> a. a \<in> A \<Longrightarrow> |F a| <o r) \<Longrightarrow> |SIGMA a : A. F a| <o r
+(r =o r') \<Longrightarrow> (r' <o r'') \<Longrightarrow> r <o r''
+(finite (A \<union> B)) \<Longrightarrow> sum f (A \<union> B) = sum f (A - B) + sum f (B - A) + sum f (A \<inter> B)
+of_nat m < of_nat n \<Longrightarrow> m < n
+(distinct (map fst xs)) \<Longrightarrow> ((k, v1) \<in> set xs) \<Longrightarrow> ((k, v2) \<in> set xs) \<Longrightarrow> v1 = v2
+count_list (xs @ ys) x = count_list xs x + count_list ys x
+mono Suc
+lcm (lcm a b) b = lcm a b
+(\<exists>x. P x) \<longleftrightarrow> (\<exists>a b. P (a, b))
+(partial_order_on A r) \<Longrightarrow> trans r
+(\<Sum>k\<le>m. (a gchoose k) * ((a / 2) - of_nat k)) = ((of_nat m + 1)/2) * (a gchoose (m + 1))
+m\<notin>dom e2 \<Longrightarrow> e1(m \<mapsto> u1) ++ e2 = (e1 ++ e2)(m \<mapsto> u1)
+0 < x \<Longrightarrow> y < 0 \<Longrightarrow> x / y < 0
+n * (m div n) \<le> m
+-x \<in> \<int> \<longleftrightarrow> x \<in> \<int>
+rel_set R OO rel_set S = rel_set (R OO S)
+S \<circ> M = image f \<circ> S' \<Longrightarrow> (S \<circ> Rep) \<circ> (Abs \<circ> M \<circ> g) = image f \<circ> (S' \<circ> g)
+x \<in> A \<times> B \<longleftrightarrow> fst x \<in> A \<and> snd x \<in> B
+HOL.equal (Typerep tyco1 tys1) (Typerep tyco2 tys2) \<longleftrightarrow> HOL.equal tyco1 tyco2 \<and> list_all2 HOL.equal tys1 tys2
+{..< n::nat} = {} \<longleftrightarrow> n = 0
+Nat n \<Longrightarrow> Rep_Nat (Abs_Nat n) = n
+\<not> False \<Longrightarrow> P \<Longrightarrow> P
+p2 \<le>o r2 \<Longrightarrow> q +c p2 \<le>o q +c r2
+map fst (enumerate n xs) = [n..<n + length xs]
+A \<subseteq> B \<Longrightarrow> B \<subseteq> C \<Longrightarrow> B - (C - A) = A
+insert a A = {a} \<union> A
+antisym {x}
+\<not> finite A \<longleftrightarrow> ( |UNIV::nat set| \<le>o |A| )
+(xs,ys) \<in> listrel r \<Longrightarrow> (xs,ys) \<in> (listrel1 r)\<^sup>*
+c \<le> b * c \<longleftrightarrow> (0 < c \<longrightarrow> 1 \<le> b) \<and> (c < 0 \<longrightarrow> b \<le> 1)
+max m (Suc n) = (case m of 0 \<Rightarrow> Suc n | Suc m' \<Rightarrow> Suc (max m' n))
+bdd_below {a ..}
+k * (m - n) = (k * m) - (k * n)
+f ` \<Union>(B ` A) = (\<Union>x\<in>A. f ` B x)
+A \<equiv> gfp (\<lambda>w. Collect (P w)) \<Longrightarrow> mono (\<lambda>w. Collect (P w)) \<Longrightarrow> a \<in> X \<Longrightarrow> (\<And>z. z \<in> X \<Longrightarrow> P (X \<union> A) z) \<Longrightarrow> a \<in> A
+(rel_set A ===> (A ===> rel_set B) ===> rel_set B) (\<lambda>A f. \<Union>(f ` A)) (\<lambda>A f. \<Union>(f ` A))
+{l..<Suc u} = {l..u}
+{i..j::int} = (if j < i then {} else insert i {i+1..j})
+(\<And>y. ccpo.admissible lub ord (\<lambda>x. P x y)) \<Longrightarrow> ccpo.admissible lub ord (\<lambda>x. \<forall>y. P x y)
+bi_unique T
+y \<noteq> 0 \<Longrightarrow> gcd x y = gcd y (x mod y)
+a \<in> insert a B
+map f (zip (map g xs) ys) = map (%(x,y). f(g x, y)) (zip xs ys)
+a \<le> 0 \<Longrightarrow> c \<le> b \<Longrightarrow> a + c \<le> b
+(\<exists>x \<in> set(replicate n a). P x) = (P a \<and> n\<noteq>0)
+y \<le> x \<Longrightarrow> x \<squnion> y = x
+remdups(filter P xs) = filter P (remdups xs)
+(\<And>R. Domainp T = R \<Longrightarrow> PROP (P R)) \<equiv> PROP (P (Domainp T))
+a * c < b * c \<Longrightarrow> 0 \<le> c \<Longrightarrow> a < b
+(P n) \<Longrightarrow> (\<not> P 0) \<Longrightarrow> \<exists>k\<le>n. (\<forall>i<k. \<not> P i) \<and> P k
+k * m < k * n \<longleftrightarrow> 0 < k \<and> m < n
+inj_on f A \<Longrightarrow> x \<in> A \<Longrightarrow> the_inv_into A f (f x) = x
+\<lbrakk>rel_fun R1 (rel_fun R2 (=)) P Q; a \<in> A; b \<in> B; A \<subseteq> {(x, y). R1 x y}; B \<subseteq> {(x, y). R2 x y}\<rbrakk> \<Longrightarrow> P (fst a) (fst b) \<longleftrightarrow> Q (snd a) (snd b)
+a ^ (2 * n) = (a ^ n)\<^sup>2
+eventually P top \<longleftrightarrow> (\<forall>x. P x)
+c < 0 \<Longrightarrow> c * a \<le> c * b \<longleftrightarrow> b \<le> a
+((a + 1) gchoose (Suc k)) = (a + 1) / of_nat (Suc k) * (a gchoose k)
+empty ++ m = m
+(\<And>v. v \<in> A \<Longrightarrow> v \<le> u) \<Longrightarrow> (A \<noteq> {}) \<Longrightarrow> \<Sqinter>A \<le> u
+- 0 = 0
+map_option f \<circ> empty = empty
+(\<And>x y. Q x \<Longrightarrow> Q y \<Longrightarrow> x \<le> y \<Longrightarrow> f x \<le> f y) \<Longrightarrow> (\<And>x. P x \<Longrightarrow> f (g x) = x) \<Longrightarrow> (\<And>x. P x \<Longrightarrow> Q (g x)) \<Longrightarrow> (eventually Q at_top) \<Longrightarrow> (eventually P at_top) \<Longrightarrow> filterlim f at_top at_top
+A = f ` {i::nat. i < n} \<Longrightarrow> finite A
+\<Squnion>A = \<top> \<longleftrightarrow> (\<forall>x<\<top>. \<exists>i\<in>A. x < i)
+(bij_betw f' A' A'') \<Longrightarrow> (f ` A \<le> A') \<Longrightarrow> bij_betw f A A' \<longleftrightarrow> bij_betw (f' \<circ> f) A A''
+0 < n \<Longrightarrow> 0 < m \<Longrightarrow> m - n < m
+of_int w < of_int z \<longleftrightarrow> w < z
+(#) y ` shuffles xs ys \<subseteq> shuffles xs (y # ys)
+(\<And>y. y \<in> A \<Longrightarrow> False) \<Longrightarrow> A = {}
+a - b < 0 \<longleftrightarrow> a < b
+(u \<le> v) \<Longrightarrow> (0 \<le> r) \<Longrightarrow> (r \<le> s) \<Longrightarrow> u + r * (v - u) / s \<le> v
+contains_pred \<equiv> \<lambda>A x. Predicate.Pred (\<lambda>y. contains A x)
+apsnd f (apfst g p) = apfst g (apsnd f p)
+(\<exists>z\<in>Sigma A B. P z) \<longleftrightarrow> (\<exists>x\<in>A. \<exists>y\<in>B x. P (x, y))
+(finite F) \<Longrightarrow> (F \<subseteq> A) \<Longrightarrow> (P {}) \<Longrightarrow> (\<And>a F. finite F \<Longrightarrow> a \<in> A \<Longrightarrow> a \<notin> F \<Longrightarrow> P F \<Longrightarrow> P (insert a F)) \<Longrightarrow> P F
+set(sort_key f xs) = set xs
+c dvd a \<Longrightarrow> c dvd b \<Longrightarrow> a div c = b div c \<longleftrightarrow> a = b
+a < b \<Longrightarrow> c \<le> d \<Longrightarrow> a + c < b + d
+is_unit b \<Longrightarrow> a = c div b \<longleftrightarrow> a * b = c
+(\<Prod>i\<in>A. f i mod a) mod a = prod f A mod a
+n \<le> N \<Longrightarrow> 1 \<le> a \<Longrightarrow> a ^ n \<le> a ^ N
+A - {x} \<subseteq> B \<Longrightarrow> A \<subseteq> insert x B
+a - b \<le> c \<longleftrightarrow> a \<le> c + b
+(mono f) \<Longrightarrow> (p \<le> f p) \<Longrightarrow> p \<le> (f ^^ k) top
+- (\<Squnion>x\<in>A. B x) = (\<Sqinter>x\<in>A. - B x)
+f (if c then x else y) = (if c then f x else f y)
+A \<subseteq> B \<Longrightarrow> (c \<notin> A \<Longrightarrow> P) \<Longrightarrow> (c \<in> B \<Longrightarrow> P) \<Longrightarrow> P
+f ` A = {} \<longleftrightarrow> A = {}
+(ListMem x xs) = (x \<in> set xs)
+(k \<le> m) \<Longrightarrow> (a gchoose m) * (of_nat m gchoose k) = (a gchoose k) * (a - of_nat k gchoose (m - k))
+(t = s) \<Longrightarrow> (u = t) \<Longrightarrow> u = s
+xs[k:=x] = [] \<longleftrightarrow> xs=[]
+normalize c * gcd a b = gcd (c * a) (c * b)
+Refl r \<Longrightarrow> Field(Restr r A) = (Field r) Int A
+a \<le> c \<Longrightarrow> b \<le> d \<Longrightarrow> a \<sqinter> b \<le> c \<sqinter> d
+f \<equiv> wfrec R F \<Longrightarrow> wf R \<Longrightarrow> adm_wf R F \<Longrightarrow> f = F f
+(chain\<^sub>\<subseteq> R) \<Longrightarrow> (\<forall>r\<in>R. trans r) \<Longrightarrow> trans (\<Union>R)
+((\<lambda>x. c) -` A) = (if c \<in> A then UNIV else {})
+1 < a \<Longrightarrow> a ^ m < a ^ n \<Longrightarrow> m < n
+0 \<le> a * a
+finite A \<Longrightarrow> f ` A \<subseteq> A \<Longrightarrow> inj_on f A \<Longrightarrow> f ` A = A
+natural_of_integer (integer_of_natural n) = n
+intrel (x, y) (u, v) \<longleftrightarrow> x + v = u + y
+right_total R = (conversep R OO R \<ge> (=))
+x\<^sup>2 + y\<^sup>2 \<le> 0 \<longleftrightarrow> x = 0 \<and> y = 0
+finite A \<Longrightarrow> prod f A = 1 \<longleftrightarrow> (\<forall>a\<in>A. f a = 1)
+(x \<le> y \<Longrightarrow> P) \<Longrightarrow> (y \<le> x \<Longrightarrow> P) \<Longrightarrow> P
+((eq_onp R) ===> S) = (\<lambda>f g. \<forall>x. R x \<longrightarrow> S (f x) (g x))
+butlast (rev xs) = rev (tl xs)
+rotate 0 = id
+(mono g) \<Longrightarrow> (mono f) \<Longrightarrow> g (lfp (\<lambda>x. f (g x))) = lfp (\<lambda>x. g (f x))
+l \<le> k ==> {k<..l} = {}
+Ex (fComp P) \<or> fAll P = fTrue
+a \<noteq> b \<and> c \<noteq> d \<longleftrightarrow> a * c + b * d \<noteq> a * d + b * c
+- x < - y \<longleftrightarrow> y < x
+(<) = (\<lambda>m n. n = Suc m)\<^sup>+\<^sup>+
+a - a = 0
+prod.swap ` (A \<times> B) = B \<times> A
+\<lbrakk> finite A; A \<noteq> {} \<rbrakk> \<Longrightarrow> m = Min A \<longleftrightarrow> m \<in> A \<and> (\<forall>a \<in> A. m \<le> a)
+(a dvd c) \<Longrightarrow> a dvd (b * c)
+finite {i :: int. a \<le> i \<and> i \<le> b}
+map f xs = map g ys \<longleftrightarrow> length xs = length ys \<and> (\<forall>i<length ys. f (xs!i) = g (ys!i))
+{..n} = {0::nat..n}
+0 < x\<^sup>2 + y\<^sup>2 \<longleftrightarrow> x \<noteq> 0 \<or> y \<noteq> 0
+(\<And>x y. x \<in> A \<Longrightarrow> y \<in> A \<Longrightarrow> R x y \<Longrightarrow> R y x) \<Longrightarrow> symp_on A R
+fNot (fEx R) \<longleftrightarrow> fAll (fComp R)
+x \<squnion> y = \<bottom> \<longleftrightarrow> x = \<bottom> \<and> y = \<bottom>
+(f \<circ>\<rightarrow> g) x = case_prod g (f x)
+length xs \<noteq> length ys \<Longrightarrow> (xs = ys) == False
+inverse a = inverse b \<longleftrightarrow> a = b
+rotate (length l) (l @ q) = q @ l
+fold f (replicate n x) = f x ^^ n
+(finite A) \<Longrightarrow> (A \<noteq> {}) \<Longrightarrow> sup x (\<Sqinter>\<^sub>f\<^sub>i\<^sub>nA) = \<Sqinter>\<^sub>f\<^sub>i\<^sub>n{sup x a|a. a \<in> A}
+eval (\<Sqinter>(f ` A)) = \<Sqinter>((eval \<circ> f) ` A)
+sort xs = fold insort xs []
+\<not> finite(UNIV::'a list set)
+(is_unit a) \<Longrightarrow> normalize a = 1
+(y::'a::order) \<le> x \<Longrightarrow> min x y = y
+\<top> \<sqinter> x = x
+f ` A = g ` B \<Longrightarrow> (h \<circ> f) ` A = (h \<circ> g) ` B
+sorted_wrt (\<lambda>_ _. True) xs
+(\<lambda>x. c) \<circ> f = (\<lambda>x. c)
+P1 \<longrightarrow> Q1 \<Longrightarrow> P2 \<longrightarrow> Q2 \<Longrightarrow> (P1 \<and> P2) \<longrightarrow> (Q1 \<and> Q2)
+0 < c \<Longrightarrow> - (b / c) \<le> a \<longleftrightarrow> - b \<le> a * c
+(M \<subseteq> N) \<Longrightarrow> (M \<noteq> {}) \<Longrightarrow> (finite N) \<Longrightarrow> Min N \<le> Min M
+A \<subseteq> C \<Longrightarrow> B \<subseteq> D \<Longrightarrow> A \<inter> B \<subseteq> C \<inter> D
+\<not> (P \<and> Q) \<longleftrightarrow> \<not> P \<or> \<not> Q
+(finite A) \<Longrightarrow> Pow A = fold (\<lambda>x A. A \<union> Set.insert x ` A) {{}} A
+(\<Sum>k\<le>n. (a + of_nat k) gchoose k) = (a + of_nat n + 1) gchoose n
+comp_fun_idem insert
+part_equivp R \<Longrightarrow> \<exists>d. d \<in> {c. \<exists>x. R x x \<and> c = Collect (R x)}
+part_equivp R \<Longrightarrow> R x y \<Longrightarrow> R y z \<Longrightarrow> R x z
+b \<in> range (\<lambda>x. f x) \<Longrightarrow> (\<And>x. b = f x \<Longrightarrow> P) \<Longrightarrow> P
+concat xss = foldr append xss []
+a \<in> {x. P x} \<Longrightarrow> P a
+\<bar>x - a\<bar> < r \<longleftrightarrow> a - r < x \<and> x < a + r
+a \<circ> b = c \<circ> d \<Longrightarrow> ((\<And>v. a (b v) = c (d v)) \<Longrightarrow> R) \<Longrightarrow> R
+rotate n xs = drop (n mod length xs) xs @ take (n mod length xs) xs
+wf {}
+A \<subseteq> {x} \<Longrightarrow> A = {} \<or> A = {x}
+wf r \<Longrightarrow> acyclic r
+\<bar>m\<bar> * \<bar>n\<bar> = gcd m n * lcm m n
+(bdd_above (f ` A)) \<Longrightarrow> (A \<noteq> {}) \<Longrightarrow> (SUP x\<in>A. a + f x) = a + (SUP x\<in>A. f x)
+finite {n::nat. n \<le> k}
+NO_MATCH (x div y) a \<Longrightarrow> a * (b - c) = a * b - a * c
+A \<subseteq> B \<Longrightarrow> A \<inter> B = A
+(n = 0 \<Longrightarrow> False) \<Longrightarrow> 0 < n
+(of_nat k \<le> a) \<Longrightarrow> (a / of_nat k :: 'a) ^ k \<le> a gchoose k
+P x y \<Longrightarrow> P \<le> Q \<Longrightarrow> Q x y
+refl_on A r \<Longrightarrow> sym r \<Longrightarrow> trans r \<Longrightarrow> equiv A r
+map_option f x = Option.bind x (Some \<circ> f)
+n dvd nat \<bar>k\<bar> \<longleftrightarrow> int n dvd k
+\<bar>a * b\<bar> = \<bar>a\<bar> * \<bar>b\<bar>
+\<bottom> = x \<squnion> y \<longleftrightarrow> x = \<bottom> \<and> y = \<bottom>
+(finite S) \<Longrightarrow> (x \<notin> S) \<Longrightarrow> (U \<subseteq> S) \<Longrightarrow> card {T. T \<subseteq> (insert x S) \<and> U \<subseteq> T \<and> odd(card T)} = card {T. T \<subseteq> S \<and> U \<subseteq> T \<and> odd(card T)} + card {T. T \<subseteq> S \<and> U \<subseteq> T \<and> even(card T)} \<and> card {T. T \<subseteq> (insert x S) \<and> U \<subseteq> T \<and> even(card T)} = card {T. T \<subseteq> S \<and> U \<subseteq> T \<and> even(card T)} + card {T. T \<subseteq> S \<and> U \<subseteq> T \<and> odd(card T)}
+(finite A) \<Longrightarrow> (finite B) \<Longrightarrow> card A + card B = card (A \<union> B) + card (A \<inter> B)
+P k \<Longrightarrow> (\<And>n. P (Suc n) \<Longrightarrow> P n) \<Longrightarrow> P 0
+id \<circ> g = g
+(set xs \<subseteq> S) \<Longrightarrow> Finite_Set.fold f y (set xs) = fold f xs y
+1 \<le> m \<Longrightarrow> m \<le> n \<Longrightarrow> m dvd fact n
+lcm x \<bar>y\<bar> = lcm x y
+gcd x 0 = x
+(finite A) \<Longrightarrow> (k \<le> card A) \<Longrightarrow> card {xs. length xs = k \<and> distinct xs \<and> set xs \<subseteq> A} = \<Prod>{card A - k + 1 .. card A}
+(insert a B) \<union> C = insert a (B \<union> C)
+power_int (-1 :: 'a) m * (power_int (-1) m * b) = b
+distinct[i..<j]
+(\<lambda>u::unit. f ()) = f
+(symclp r)\<^sup>*\<^sup>* x y \<Longrightarrow> (symclp r)\<^sup>*\<^sup>* y x
+f \<le> g \<Longrightarrow> f x \<le> g x
+(a dvd b) \<Longrightarrow> a dvd (b * c)
+(trans r) \<Longrightarrow> (inj_on f (Field r)) \<Longrightarrow> trans(dir_image r f)
+(\<And>i. i > m \<Longrightarrow> a i = 0) \<Longrightarrow> (\<And>j. j > n \<Longrightarrow> b j = 0) \<Longrightarrow> (\<Sum>i\<le>m. (a i) * x ^ i) * (\<Sum>j\<le>n. (b j) * x ^ j) = (\<Sum>r\<le>m + n. (\<Sum>k\<le>r. (a k) * (b (r - k))) * x ^ r)
+(chain (fun_ord ord) A) \<Longrightarrow> chain ord {y. \<exists>f\<in>A. y = f a}
+B \<subseteq> A \<Longrightarrow> \<Inter>A \<subseteq> \<Inter>B
+(\<And>a b. P a b \<longleftrightarrow> P b a) \<Longrightarrow> (\<And>a. P a 0) \<Longrightarrow> (\<And>a b. P a b \<longrightarrow> P a (a + b)) \<Longrightarrow> P a b
+transp (=)
+a < b \<Longrightarrow> a + c < b + c
+can_select P (set A) = list_ex1 P A
+B \<subseteq> A \<union> B
+\<lbrakk> finite A; a \<in> A \<rbrakk> \<Longrightarrow> \<exists> m \<in> A. m \<le> a \<and> (\<forall> b \<in> A. b \<le> m \<longrightarrow> m = b)
+curry f a b \<Longrightarrow> f (a, b)
+z \<in> c a b \<Longrightarrow> z \<in> (case (a, b) of (d, e) \<Rightarrow> c d e)
+(k \<ge> 2) \<Longrightarrow> m \<le> k ^ m
+(\<not>(P \<and> Q)) = (\<not>P \<or> \<not>Q)
+bij_betw f A B \<Longrightarrow> f ` A = B
+0 \<le> of_int z \<longleftrightarrow> 0 \<le> z
+(Card_order r) \<Longrightarrow> (\<not>finite (Field r)) \<Longrightarrow> (a \<in> Field r) \<Longrightarrow> \<exists>b \<in> Field r. a \<noteq> b \<and> (a,b) \<in> r
+0 \<le> x \<Longrightarrow> 0 \<le> y \<Longrightarrow> x + y = 0 \<longleftrightarrow> x = 0 \<and> y = 0
+(Partial_order r) \<Longrightarrow> (\<And>C. C \<in> Chains r \<Longrightarrow> \<exists>u\<in>Field r. \<forall>a\<in>C. (a, u) \<in> r) \<Longrightarrow> \<exists>m\<in>Field r. \<forall>a\<in>Field r. (m, a) \<in> r \<longrightarrow> a = m
+insert x A \<subseteq> S \<Longrightarrow> finite A \<Longrightarrow> x \<notin> A \<Longrightarrow> fold f z (insert x A) = fold f (f x z) A
+(finite B) \<Longrightarrow> finite (A - B) \<longleftrightarrow> finite A
+\<Sqinter>S = (\<lambda>x y. (x, y) \<in> (\<Inter>(Collect ` case_prod ` S)))
+(|A| \<le>o |B|) \<Longrightarrow> (|C| \<le>o |D|) \<Longrightarrow> |A <+> C| \<le>o |B <+> D|
+POS A B \<equiv> NEG B A
+(P \<and> (Q \<or> R)) = ((P\<and>Q) \<or> (P\<and>R))
+sorted_wrt P (xs @ ys) \<longleftrightarrow> sorted_wrt P xs \<and> sorted_wrt P ys \<and> (\<forall>x\<in>set xs. \<forall>y\<in>set ys. P x y)
+k \<le> n \<Longrightarrow> n choose k > 0
+(\<exists>\<^sub>Fx in F. P x \<or> Q x) \<longleftrightarrow> (\<exists>\<^sub>Fx in F. P x) \<or> (\<exists>\<^sub>Fx in F. Q x)
+is_unit b \<Longrightarrow> a div b = c \<longleftrightarrow> a = c * b
+R `` (A \<inter> B) \<subseteq> R `` A \<inter> R `` B
+(\<forall>x\<in>A. P) \<longleftrightarrow> ((\<exists>x. x \<in> A) \<longrightarrow> P)
+\<lbrakk>P; P \<longrightarrow> Q\<rbrakk> \<Longrightarrow> Q
+f(x := y) = g(x := z) \<Longrightarrow> y = z
+(K \<noteq> {}) \<Longrightarrow> Inf K \<in> K
+(bij f) \<Longrightarrow> f ` Collect P = {y. P (inv f y)}
+True \<in> P ` A \<longleftrightarrow> Bex A P
+(0 < inverse a) = (0 < a)
+zip xs (takeWhile P ys) = takeWhile (P \<circ> snd) (zip xs ys)
+set ` set (subseqs xs) = Pow (set xs)
+(P\<or>Q)\<or>R \<Longrightarrow> P\<or>(Q\<or>R)
+(A \<Longrightarrow> B \<Longrightarrow> C) \<equiv> (A \<and> B \<Longrightarrow> C)
+(a \<noteq> 0) \<Longrightarrow> coprime a (b mod a) \<longleftrightarrow> coprime a b
+(a \<noteq> 0) \<Longrightarrow> \<exists>d x y. d dvd a \<and> d dvd b \<and> a * x = b * y + d
+\<lbrakk> P x; \<And>y. P y \<Longrightarrow> \<not> f y < f x; \<And>x. \<lbrakk> P x; \<forall>y. P y \<longrightarrow> \<not> f y < f x \<rbrakk> \<Longrightarrow> Q x \<rbrakk> \<Longrightarrow> Q (arg_min f P)
+P y x \<Longrightarrow> P (snd (x, y)) (fst (x, y))
+(\<And>k. k > n \<Longrightarrow> P k) \<Longrightarrow> (\<And>k. k \<le> n \<Longrightarrow> (\<And>i. i > k \<Longrightarrow> P i) \<Longrightarrow> P k) \<Longrightarrow> P m
+0 = of_nat n \<longleftrightarrow> 0 = n
+(Card_order r) \<Longrightarrow> isCardSuc r (cardSuc r)
+ASSUMPTION A \<Longrightarrow> A
+(\<And>f g e x y. map_sum f g (if e then Inr x else y) = (if e then Inr (g x) else map_sum f g y)) \<Longrightarrow> \<And>f g e x y. map_sum f g (if e then Inl x else y) = (if e then Inl (f x) else map_sum f g y)
+( |A| \<le>o r) = (\<exists>B \<le> Field r. |A| =o |B| \<and> |B| \<le>o r)
+(\<And>x. x \<in> A \<Longrightarrow> P x) \<equiv> Trueprop (\<forall>x\<in>A. P x)
+A \<equiv> lfp f \<Longrightarrow> mono f \<Longrightarrow> f (inf A P) \<le> P \<Longrightarrow> A \<le> P
+(x \<sqinter> y = \<bottom>) \<Longrightarrow> (x \<squnion> y = \<top>) \<Longrightarrow> - x = y
+(reflp R) \<Longrightarrow> (transp R) \<Longrightarrow> R\<^sup>*\<^sup>* = R
+(\<And>fa fb fc fd fe ff fg fh y. fa \<in> range f \<Longrightarrow> fb \<in> range fa \<Longrightarrow> fc \<in> range fb \<Longrightarrow> fd \<in> range fc \<Longrightarrow> fe \<in> range fd \<Longrightarrow> ff \<in> range fe \<Longrightarrow> fg \<in> range ff \<Longrightarrow> fh \<in> range fg \<Longrightarrow> y \<in> range fh \<Longrightarrow> P y) \<equiv> (\<And>x xa xb xc xd xe xf xg xh. P (f x xa xb xc xd xe xf xg xh))
+k \<le> n \<Longrightarrow> n choose k = fact n div (fact k * fact (n - k))
+(Partial_order r) \<Longrightarrow> (x \<in> Field r) \<Longrightarrow> (finite r) \<Longrightarrow> (\<And>x. x \<in> Field r \<Longrightarrow> (\<And>y. y \<in> aboveS r x \<Longrightarrow> P y) \<Longrightarrow> P x) \<Longrightarrow> P x
+(B \<union> C) \<inter> A = (B \<inter> A) \<union> (C \<inter> A)
+|UNIV::'a set| <o natLeq +c card_suc ( |UNIV::'a set| )
+left_unique R \<Longrightarrow> right_total R \<Longrightarrow> \<forall>y. \<exists>!x. R x y
+([], ns) \<in> lenlex r \<longleftrightarrow> ns \<noteq> []
+(P a) \<Longrightarrow> (\<And>x. P x \<Longrightarrow> x = a) \<Longrightarrow> (\<And>x. P x \<Longrightarrow> Q x) \<Longrightarrow> Q (THE x. P x)
+((m ++ n) k = None) = (n k = None \<and> m k = None)
+(mono f) \<Longrightarrow> f (lfp f) = lfp f
+0 \<le> n
+(finite (A <+> B)) \<Longrightarrow> finite B
+(\<forall>b. P b) \<longleftrightarrow> P True \<and> P False
+((A ===> (=)) ===> (B ===> (=)) ===> rel_prod A B ===> (=)) pred_prod pred_prod
+\<lbrakk>right_unique A; right_unique B\<rbrakk> \<Longrightarrow> right_unique (A OO B)
+m * n = Suc 0 \<longleftrightarrow> m = Suc 0 \<and> n = Suc 0
+trans (Id_on A)
+\<bar>a - b\<bar> = \<bar>b - a\<bar>
+bij id
+Card_order |A|
+last(xs @ ys) = (if ys = [] then last xs else last ys)
+wfp r \<Longrightarrow> asymp r
+(A ===> ((=) ===> A ===> A) ===> (=) ===> A) rec_nat rec_nat
+P a \<Longrightarrow> (\<And>x. P x \<Longrightarrow> Q x) \<Longrightarrow> Q (Least P)
+(\<exists>y. P \<longleftrightarrow> Q y) \<longleftrightarrow> (P \<longrightarrow> (\<exists>y. Q y)) \<and> ((\<forall>y. Q y) \<longrightarrow> P)
+(set xs \<inter> set ys = {}) \<Longrightarrow> (zs \<in> shuffles xs ys) \<Longrightarrow> filter (\<lambda>x. x \<in> set ys) zs = ys
+comp_fun_commute (\<lambda>(x,y) A. if x \<in> S then Set.insert y A else A)
+(finite A) \<Longrightarrow> (\<And>K. K \<in> A \<Longrightarrow> finite K) \<Longrightarrow> int (card (\<Union>A)) = (\<Sum>I | I \<subseteq> A \<and> I \<noteq> {}. (- 1) ^ (card I + 1) * int (card (\<Inter>I)))
+(\<not> B x \<Longrightarrow> A x) \<Longrightarrow> (A \<squnion> B) x
+set xs \<le> B \<longleftrightarrow> (\<forall>x\<in>set xs. x \<in> B)
+Id_on (set xs) = set [(x, x). x \<leftarrow> xs]
+the_only default xq = singleton default (pred_of_seq xq)
+eval (R \<bind> Q) y \<Longrightarrow> (\<And>x. eval R x \<Longrightarrow> eval (Q x) y \<Longrightarrow> P) \<Longrightarrow> P
+lexordp xs ys \<Longrightarrow> lexordp_eq xs ys
+\<not> eventually P F \<longleftrightarrow> (\<exists>\<^sub>Fx in F. \<not> P x)
+0 = of_int z \<longleftrightarrow> z = 0
+map f (xs @ ys) = map f xs @ map f ys
+x * x - 1 = (x + 1) * (x - 1)
+A \<union> B = B \<union> A
+surj uminus
+w < z \<longleftrightarrow> (\<exists>n. z = w + int (Suc n))
+czero =o czero
+i < length xs\<Longrightarrow> (xs[i:=x])!j = (if i = j then x else xs!j)
+(finite s) \<Longrightarrow> (\<And>i. i \<in> s \<Longrightarrow> f i \<ge> 0) \<Longrightarrow> ((\<Sum>i \<in> s. f i) = B) \<Longrightarrow> (i \<in> s) \<Longrightarrow> f i \<le> B
+of_int (- z) = - (of_int z)
+(\<not> \<not> P) = P
+set(rotate n xs) = set xs
+A \<noteq> {} \<Longrightarrow> bdd_below (f ` A) \<Longrightarrow> u \<le> \<Sqinter>(f ` A) \<longleftrightarrow> (\<forall>x\<in>A. u \<le> f x)
+list_all P [i..j] \<longleftrightarrow> all_interval_int P i j
+|A| \<le>o (r :: 'b rel) \<Longrightarrow> \<exists>f B :: 'b set. bij_betw f B A
+a dvd 0
+(a+b) / c = a/c + b/c
+lists {} = {[]}
+left_unique R \<Longrightarrow> right_unique R \<Longrightarrow> bi_unique R
+(l \<noteq> 0) \<Longrightarrow> (\<not> l dvd k) \<Longrightarrow> sgn (k mod l) = sgn l
+r\<^sup>* = (r\<^sup>+)\<^sup>=
+(fold_graph g z A x) \<Longrightarrow> (\<And>a b. a \<in> A \<Longrightarrow> b \<in> B \<Longrightarrow> f a b = g a b) \<Longrightarrow> (\<And>a b. a \<in> A \<Longrightarrow> b \<in> B \<Longrightarrow> g a b \<in> B) \<Longrightarrow> (z \<in> B) \<Longrightarrow> fold_graph f z A x \<and> x \<in> B
+\<lbrakk>a \<ge> 0; b \<ge> 0; n > 0\<rbrakk> \<Longrightarrow> power_int a n \<le> power_int b n \<longleftrightarrow> a \<le> b
+asym r \<longleftrightarrow> (\<forall>x y. (x,y) \<in> r \<longrightarrow> (y,x) \<notin> r)
+(regularCard r) \<Longrightarrow> (Cinfinite r) \<Longrightarrow> (|I| <o r) \<Longrightarrow> (\<forall>i \<in> I. |A i| <o r) \<Longrightarrow> |\<Union>i \<in> I. A i| <o r
+\<lbrakk> distinct xs; i < length xs; j < length xs \<rbrakk> \<Longrightarrow> (xs!i = xs!j) = (i = j)
+x \<in> set (takeWhile P xs) \<Longrightarrow> x \<in> set xs \<and> P x
+bi_unique R \<longleftrightarrow> (\<forall>z. \<exists>\<^sub>\<le>\<^sub>1x. R x z) \<and> (\<forall>z. \<exists>\<^sub>\<le>\<^sub>1x. R z x)
+n < N \<Longrightarrow> 0 < a \<Longrightarrow> a < 1 \<Longrightarrow> a ^ N < a ^ n
+gcd a (normalize b) = gcd a b
+inverse (- a) = - inverse a
+foldr f (filter P xs) = foldr (\<lambda>x. if P x then f x else id) xs
+\<lbrakk>l = k; \<And>x. x \<in> set l \<Longrightarrow> P x = Q x\<rbrakk> \<Longrightarrow> takeWhile P l = takeWhile Q k
+(Card_order r) \<Longrightarrow> (Card_order r') \<Longrightarrow> (r' <o cardSuc r) = (r' \<le>o r)
+0 \<le> x \<Longrightarrow> 0 \<le> y \<Longrightarrow> y \<le> 1 \<Longrightarrow> x * y \<le> x
+nat i = 0 \<longleftrightarrow> i \<le> 0
+a \<le> b \<Longrightarrow> d \<le> c \<Longrightarrow> a - c \<le> b - d
+(a + b) - b = a
+(\<And>x. x \<in> A \<Longrightarrow> 0 \<le> f x) \<Longrightarrow> 0 \<le> sum f A
+comp f ^^ n = comp (f ^^ n)
+(wf R) \<Longrightarrow> (R O S \<subseteq> S O R) \<Longrightarrow> wf (S O R)
+max (min b c) a = min (max b a) (max c a)
+{} = f ` A \<longleftrightarrow> A = {}
+(\<And>x. Q x \<Longrightarrow> P x = P' x) \<Longrightarrow> (\<forall>x. Q x \<longrightarrow> P x) = (\<forall>x. Q x \<longrightarrow> P' x)
+A \<inter> B = {} \<longleftrightarrow> (\<forall>x. x\<in>A \<longrightarrow> x \<notin> B)
+inj (apsnd f) \<longleftrightarrow> inj f
+a \<in> A \<Longrightarrow> A \<inter> (insert a B) = insert a (A \<inter> B)
+(Card_order r) \<Longrightarrow> \<exists>r'. isCardSuc r r'
+(if P then Q else R) = ((P \<and> Q) \<or> (\<not> P \<and> R))
+Field (r\<inverse>) = Field r
+(\<forall>x \<in> set(replicate n a). P x) = (P a \<or> n=0)
+\<lbrakk>i < length xs; i < length ys\<rbrakk> \<Longrightarrow> (zip xs ys)!i = (xs!i, ys!i)
+Enum.enum = map char_of [0..<256]
+(a, b) \<in> R \<Longrightarrow> (f a, g b) \<in> map_prod f g ` R
+(wf_on B r) \<Longrightarrow> (f ` A \<subseteq> B) \<Longrightarrow> ((\<And>x y. x \<in> A \<Longrightarrow> y \<in> A \<Longrightarrow> (x, y) \<in> q \<Longrightarrow> (f x, f y) \<in> r)) \<Longrightarrow> wf_on A q
+a < 0 \<Longrightarrow> \<bar>a\<bar> = - a
+(\<forall>i < Suc n. P i) = (P 0 \<and> (\<forall>i < n. P(Suc i)))
+under r a \<subseteq> Field r
+a \<le> b + a \<longleftrightarrow> 0 \<le> b
+(k \<ge> 0) \<Longrightarrow> (k < l) \<Longrightarrow> k mod l = k
+transp R\<^sup>*\<^sup>*
+(A ===> rel_set A ===> rel_set A) insert insert
+(a \<in> \<nat>) \<Longrightarrow> (b \<in> \<nat>) \<Longrightarrow> (b \<le> a) \<Longrightarrow> a - b \<in> \<nat>
+a \<in> f -` B \<Longrightarrow> (\<And>x. f a = x \<Longrightarrow> x \<in> B \<Longrightarrow> P) \<Longrightarrow> P
+(Id_on A)\<inverse> = Id_on A
+(\<Sqinter>A) a \<Longrightarrow> P \<in> A \<Longrightarrow> P a
+\<lambda>x. a (g x) \<equiv> COMBB a g
+\<exists>xs. length xs = n
+drop n (x # xs) = (if n = 0 then x # xs else drop (n - 1) xs)
+a * b mod b = 0
+distinct xs \<Longrightarrow> remdups_adj xs = xs
+\<lbrakk>\<And>x y. (f x = f y) = (x = y); Card_order r\<rbrakk> \<Longrightarrow> r =o dir_image r f
+(\<lambda>(x, y). f (x, y)) = f
+numeral x ^ n = of_int y \<longleftrightarrow> numeral x ^ n = y
+(type_definition Rep Abs S) \<Longrightarrow> part_equivp (eq_onp (\<lambda>x. x \<in> S))
+m dvd Suc 0 \<longleftrightarrow> m = Suc 0
+- a + b = b - a
+((\<exists>y. \<exists>x. A x y) \<longrightarrow> (\<exists>y. \<exists>x\<in>P. B x y)) \<Longrightarrow> (\<exists>x. \<exists>y. A x y) \<longrightarrow> (\<exists>x\<in>P. \<exists>y. B x y)
+disjnt (insert a X) Y \<longleftrightarrow> a \<notin> Y \<and> disjnt X Y
+sum f A / r = (\<Sum>n\<in>A. f n / r)
+(\<forall>x. f x = x) \<longleftrightarrow> f = id
+compat r (dir_image r f) f
+a = b \<Longrightarrow> {a .. b} = {a}
+n < length (tl xs) \<Longrightarrow> tl xs ! n = xs ! Suc n
+(a - b) * c = a * c - b * c
+(length xs = 0) = (xs = [])
+distinct_adj []
+(right_total A) \<Longrightarrow> (bi_unique B) \<Longrightarrow> ((A ===> B) ===> (A ===> B) ===> (=)) (\<lambda>f g. \<forall>x\<in>Collect(Domainp A). f x = g x) (=)
+P \<Longrightarrow> P = True
+sgn (- a) = - sgn a
+m * n = (if m = 0 then 0 else n + ((m - 1) * n))
+(A \<equiv> B) \<Longrightarrow> A = B
+\<lbrakk>Cinfinite r; card_order r\<rbrakk> \<Longrightarrow> natLeq <o card_suc r
+NEG (A OO (=)) A
+(\<Sum>i = Suc 0..n. of_nat i) = of_nat n * (of_nat n + 1) div 2
+b \<noteq> 0 \<Longrightarrow> - (a / b) = a / (- b)
+integer_of_nat (numeral n) = numeral n
+\<lbrakk> P [] []; \<And>x xs. P (xs @ [x]) []; \<And>y ys. P [] (ys @ [y]); \<And>x xs y ys. P xs ys \<Longrightarrow> P (xs @ [x]) (ys @ [y]) \<rbrakk> \<Longrightarrow> P xs ys
+inj_on f (set xs Un set ys) \<Longrightarrow> (map f xs = map f ys) = (xs = ys)
+A \<inter> B \<inter> (A - B) = {}
+(\<And>x. x \<in> A \<Longrightarrow> False) \<Longrightarrow> A \<subseteq> {}
+take 0 = (\<lambda>xs. [])
+snd xy = (fst \<circ> (%(x, y). (y, x))) xy
+A \<noteq> {} \<Longrightarrow> bdd_below A \<Longrightarrow> B \<noteq> {} \<Longrightarrow> bdd_below B \<Longrightarrow> Inf (A \<union> B) = inf (Inf A) (Inf B)
+x \<in> A ==> contains A x
+Chains r \<subseteq> {C. pred_on.chain UNIV (\<lambda>x y. (x, y) \<in> r) C}
+Pair x -` Sigma A f = (if x \<in> A then f x else {})
+A \<subset> B \<Longrightarrow> c \<in> A \<Longrightarrow> c \<in> B
+equivp R \<Longrightarrow> transp R
+(if c then x else x) = x
+y < x \<Longrightarrow> Sup {y<..x} = x
+|{}| \<le>o |A|
+\<forall>x\<in>S. sym (r x) \<Longrightarrow> sym (\<Union>(r ` S))
+(wf_on B r) \<Longrightarrow> (A \<subseteq> B) \<Longrightarrow> ((\<And>x y. x \<in> A \<Longrightarrow> y \<in> A \<Longrightarrow> (x, y) \<in> q \<Longrightarrow> (x, y) \<in> r)) \<Longrightarrow> wf_on A q
+\<And>P Q. (\<exists>x. P(x)) \<and> Q \<Longrightarrow> \<exists>x. P(x) \<and> Q
+wf (measure f)
+wf r \<Longrightarrow> wf (r \<inter> r')
+(sorted_wrt R xs) \<Longrightarrow> (\<And>x y. x \<in> set xs \<Longrightarrow> y \<in> set xs \<Longrightarrow> R x y \<Longrightarrow> R' (f x) (f y)) \<Longrightarrow> sorted_wrt R' (map f xs)
+dropWhile P xs \<noteq> [] \<Longrightarrow> \<not> P (hd (dropWhile P xs))
+a \<notin> Field r \<Longrightarrow> underS r a = {}
+0 \<le> of_nat n
+(n choose s) * fact s \<le> n^s
+card_order r \<Longrightarrow> Card_order (card_suc r)
+0 < n \<Longrightarrow> Suc (n - 1) = n
+f -` (A \<union> B) = (f -` A) \<union> (f -` B)
+power_int (-1 :: 'a) (a - b) = power_int (-1) (b - a)
+(ordering less_eq less) \<Longrightarrow> class.order less_eq less
+(S \<union> T) O R = (S O R) \<union> (T O R)
+a / b = 0 \<longleftrightarrow> a = 0 \<or> b = 0
+i \<le> j \<Longrightarrow> [i..<(Suc j)] = [i..<j]@[j]
+(list_all2 A ===> (=) ===> A ===> list_all2 A) list_update list_update
+(0 \<le> x) \<Longrightarrow> (0 \<le> y) \<Longrightarrow> (x ^ 2 = y ^ 2) \<longleftrightarrow> x = y
+atLeast (Suc k) = greaterThan k
+nths (nths xs A) B = nths xs {i \<in> A. \<exists>j \<in> B. card {i' \<in> A. i' < i} = j}
+(m(a\<mapsto>x) = n(a\<mapsto>y)) \<Longrightarrow> x = y
+((m1 \<circ>\<^sub>m m2) k = Some v) = (\<exists>k'. m2 k = Some k' \<and> m1 k' = Some v)
+Card_order p2 \<Longrightarrow> p2 \<le>o p1 +c p2
+( |A| <o r) = (\<exists>B < Field r. |A| =o |B| \<and> |B| <o r)
+a + b = a + c \<longleftrightarrow> b = c
+(trans_on A r\<^sub>A) \<Longrightarrow> (trans_on B r\<^sub>B) \<Longrightarrow> trans_on (A \<times> B) (r\<^sub>A <*lex*> r\<^sub>B)
+trans natLeq
+(of_nat b) ^ w < of_nat x \<longleftrightarrow> b ^ w < x
+tranclp r a b \<longleftrightarrow> (a, b) \<in> trancl {(x, y). r x y}
+concat (replicate m [a]) = replicate m a
+\<lbrakk> equivclp r a b; equivclp r b c \<rbrakk> \<Longrightarrow> equivclp r a c
+(\<And>x y. (x, y) = q \<Longrightarrow> f x y = g x y) \<Longrightarrow> p = q \<Longrightarrow> case_prod f p = case_prod g q
+equiv A r \<Longrightarrow> {x, y} \<subseteq> A \<Longrightarrow> proj r x = proj r y \<longleftrightarrow> (x, y) \<in> r
+(\<And>x y. x \<in> set xs \<Longrightarrow> y \<in> set xs \<Longrightarrow> f y \<circ> f x = f x \<circ> f y) \<Longrightarrow> fold f (rev xs) = fold f xs
+(sorted_wrt R xs) \<Longrightarrow> (P []) \<Longrightarrow> (\<And>x xs. (\<And>y. y \<in> set xs \<Longrightarrow> R x y) \<Longrightarrow> P xs \<Longrightarrow> P (x # xs)) \<Longrightarrow> P xs
+(finite R) \<Longrightarrow> R^^k \<subseteq> (\<Union>n\<in>{n. n \<le> card R}. R^^n)
+(accp r a) \<Longrightarrow> (\<And>x. accp r x \<Longrightarrow> \<forall>y. r y x \<longrightarrow> P y \<Longrightarrow> P x) \<Longrightarrow> P a
+fst \<circ> apsnd f = fst
+inverse a = 0 \<longleftrightarrow> a = 0
+(- a) ^ n = (if even n then a ^ n else - (a ^ n))
+distinct xs \<Longrightarrow> distinct (removeAll x xs)
+- b - a = - a - b
+Lcm (A \<union> B) = lcm (Lcm A) (Lcm B)
+inj_on (\<lambda>(a, b). f a * g b) (A \<times> B) \<Longrightarrow> sum f A * sum g B = sum id {f a * g b |a b. a \<in> A \<and> b \<in> B}
+Range {(x, y). P x y} = {y. \<exists>x. P x y}
+j < length (dropWhile P xs) \<Longrightarrow> dropWhile P xs ! j = xs ! (j + length (takeWhile P xs))
+sym_on A r \<Longrightarrow> B \<subseteq> A \<Longrightarrow> sym_on B r
+x \<in> set_of_pred P \<longleftrightarrow> Predicate.eval P x
+Cinfinite r \<Longrightarrow> Cnotzero r
+distinct (remdups xs)
+ctor_rec f \<circ> g = ctor_rec (f \<circ> (id_bnf \<circ> g \<circ> id_bnf))
+max x y * p = (if 0 \<le> p then max (x*p) (y*p) else min (x*p) (y*p))
+Sup {..x} = x
+Pow (set []) = {{}}
+(LIM x sequentially. f (Suc x) :> F) \<longleftrightarrow> (LIM x sequentially. f x :> F)
+((r\<^sup>+\<^sup>+)\<inverse>\<inverse> x y) \<Longrightarrow> (r\<inverse>\<inverse>)\<^sup>+\<^sup>+ x y
+(\<And>P. P \<in> A \<Longrightarrow> P a) \<Longrightarrow> (\<Sqinter>A) a
+(Quotient3 R1 Abs1 Rep1) \<Longrightarrow> ((R1 ===> R2) f g) \<Longrightarrow> (R1 x y) \<Longrightarrow> R2 (f x) (g y)
+Suc m \<le> n \<Longrightarrow> m < n
+disjnt A B \<Longrightarrow> disjnt B A
+\<lbrakk>Q; P = Q\<rbrakk> \<Longrightarrow> P
+finite r \<Longrightarrow> finite (Domain r)
+0 = 1 / a \<longleftrightarrow> a = 0
+(PROP P =simp=> PROP Q) \<Longrightarrow> (PROP P) \<Longrightarrow> (PROP Q \<Longrightarrow> PROP R) \<Longrightarrow> PROP R
+1 div (2 ^ n) = of_bool (n = 0)
+- k mod l \<noteq> 0 \<Longrightarrow> k mod l \<noteq> 0
+{Suc l..u} = {l<..u}
+\<lbrakk>Card_order r; A \<noteq> {}\<rbrakk> \<Longrightarrow> r \<le>o |A \<times> (Field r)|
+List.extract P xs = Some (ys, y, zs) \<Longrightarrow> xs = ys @ y # zs \<and> P y \<and> \<not> (\<exists> y \<in> set ys. P y)
+\<Union>{} = {}
+(monotone (\<le>) (\<le>) f) \<Longrightarrow> chain _ ?C
+gcd (- numeral n) a = gcd (numeral n) a
+a gchoose k = pochhammer (a - of_nat k + 1) k / fact k
+(of_nat b) ^ w = of_nat x \<longleftrightarrow> b ^ w = x
+c \<in> chains S \<Longrightarrow> x \<in> c \<Longrightarrow> y \<in> c \<Longrightarrow> x \<subseteq> y \<or> y \<subseteq> x
+fFalse \<noteq> fTrue
+(finite A) \<Longrightarrow> \<exists>(n::nat) f. A = f ` {i. i < n} \<and> inj_on f {i. i < n}
+distinct (map fst al) \<Longrightarrow> graph (map_of al) = set al
+mono F \<Longrightarrow> F x = x \<Longrightarrow> (\<And>z. F z = z \<Longrightarrow> x \<le> z) \<Longrightarrow> lfp F = x
+(A \<Longrightarrow> B) \<equiv> Trueprop (transfer_implies A B)
+class.distrib_lattice sup (\<ge>) (>) inf
+(xs @ x # ys) ! length xs = x
+(n \<le> N) \<Longrightarrow> (a \<ge> 1) \<Longrightarrow> power_int a N \<ge> power_int a n
+r =o r' \<Longrightarrow> |Field r| =o |Field r'|
+0 < a \<Longrightarrow> b \<le> c \<Longrightarrow> b < a + c
+(if P then if Q then x else y else y) = (if P \<and> Q then x else y)
+(rel_set (rel_set A) ===> rel_set A) Union Union
+(stable r) \<Longrightarrow> (|A| <o r) \<Longrightarrow> (\<And> a. a \<in> A \<Longrightarrow> |F a| <o r) \<Longrightarrow> |\<Union>a \<in> A. F a| <o r
+k dvd n \<Longrightarrow> 0 < n \<Longrightarrow> k \<le> n
+Suc (Suc (m mod n)) mod n = Suc (Suc m) mod n
+a \<in> B \<Longrightarrow> a \<in> insert b B
+m \<le> m * (m * m)
+(\<And>x y. x \<in> A \<Longrightarrow> y \<in> A \<Longrightarrow> R x y \<Longrightarrow> \<not> R y x) \<Longrightarrow> asymp_on A R
+?L \<longleftrightarrow> (\<exists>f. ?p f xs ys)
+Linear_order r \<Longrightarrow> Well_order r \<longleftrightarrow> (\<forall>A \<subseteq> Field r. A \<noteq> {} \<longrightarrow> (\<exists>a \<in> A. \<forall>a' \<in> A. (a, a') \<in> r))
+B \<subseteq> A \<Longrightarrow> A \<inter> B = B
+left_total A\<inverse>\<inverse> \<longleftrightarrow> right_total A
+A = B \<Longrightarrow> x \<in> B \<Longrightarrow> (x \<in> A \<Longrightarrow> P) \<Longrightarrow> P
+x \<in> C \<Longrightarrow> A \<times> C \<subseteq> B \<times> C \<longleftrightarrow> A \<subseteq> B
+sgn a * sgn a = of_bool (a \<noteq> 0)
+\<lbrakk>A \<noteq> {}; bdd_above (g ` B); A \<subseteq> B; \<And>x. x \<in> A \<Longrightarrow> f x \<le> g x\<rbrakk> \<Longrightarrow> \<Squnion> (f ` A) \<le> \<Squnion> (g ` B)
+(Quotient3 R1 Abs1 Rep1) \<Longrightarrow> (Quotient3 R2 Abs2 Rep2) \<Longrightarrow> (Rep1 ---> Abs2) (\<lambda>x. (Abs1 ---> Rep2) f x) = (\<lambda>x. f x)
+(bi_unique A) \<Longrightarrow> (right_total A) \<Longrightarrow> (rel_set (rel_set A) ===> rel_set A) (\<lambda>S. \<Inter>S \<inter> Collect (Domainp A)) Inter
+(finite (A \<times> B)) \<Longrightarrow> (A \<noteq> {}) \<Longrightarrow> finite B
+m + Suc n = Suc (m + n)
+odd n \<Longrightarrow> 0 \<le> a ^ n \<longleftrightarrow> 0 \<le> a
+(x, y) \<in> R ^^ 0 \<Longrightarrow> (x = y \<Longrightarrow> P) \<Longrightarrow> P
+x dvd Gcd A \<Longrightarrow> y \<in> A \<Longrightarrow> x dvd y
+symclp (equivclp r) = equivclp r
+m \<noteq> 0 \<Longrightarrow> power_int (0 :: 'a) m = 0
+(\<And>x y. vimage2p id_bnf id_bnf R x y \<Longrightarrow> IR (xtor x) (xtor y)) \<Longrightarrow> R \<le> IR
+\<lbrakk> \<And>x y. x \<in> set xs \<Longrightarrow> y \<in> set xs \<Longrightarrow> f x \<circ> f y = f y \<circ> f x; x \<in> set xs \<rbrakk> \<Longrightarrow> fold f xs = fold f (remove1 x xs) \<circ> f x
+nat 1 = Suc 0
+of_int y = (- numeral x) ^ n \<longleftrightarrow> y = (- numeral x) ^ n
+a mod (- 1) = 0
+of_int x * y = y * of_int x
+map_option f (bind x g) = bind x (map_option f \<circ> g)
+(distinct xs) \<Longrightarrow> distinct (zip xs ys)
+(\<Sum>k\<le>n. k choose m) = Suc n choose Suc m
+finite A \<Longrightarrow> \<exists>\<^sub>Fx in F. \<exists>y\<in>A. P x y \<Longrightarrow> \<exists>y\<in>A. \<exists>\<^sub>Fx in F. P x y
+f ` (g ` A) = (\<lambda>x. f (g x)) ` A
+length (butlast xs) = length xs - 1
+eventually P at_bot \<longleftrightarrow> (\<exists>N. \<forall>n\<le>N. P n)
+P \<longleftrightarrow> Q \<Longrightarrow> P \<and> R \<longleftrightarrow> Q \<and> R
+gcd (a ^ n) (b ^ n) = normalize (gcd a b ^ n)
+{..< n::'a::{linorder, order_bot}} = {} \<longleftrightarrow> n = bot
+distinct xs \<Longrightarrow> distinct (dropWhile P xs)
+m - m = 0
+inj_on f A \<Longrightarrow> inj_on f' (f ` A) \<longleftrightarrow> inj_on (f' \<circ> f) A
+R = (=) \<Longrightarrow> R \<le> R OO R
+rotate1 (replicate n a) = replicate n a
+x < y \<longleftrightarrow> x \<le> y \<and> x \<noteq> y
+\<Union>{f x| x. P x} = {a. \<exists>x. P x \<and> a \<in> f x}
+|A <+> B| =o |A| +c |B|
+(R O S \<subseteq> R) \<Longrightarrow> max_ext R O (max_ext S \<union> {({}, {})}) \<subseteq> max_ext R
+{x. P x \<and> Q x} = {x. P x} \<inter> {x. Q x}
+isl s \<Longrightarrow> projl (map_sum f g s) = f (projl s)
+A \<in> Pow B \<Longrightarrow> A \<subseteq> B
+Quot_True a \<equiv> Quot_True b
+\<bar>a + b - (c + d)\<bar> \<le> \<bar>a - c\<bar> + \<bar>b - d\<bar>
+{m..<Suc n} = (if m \<le> n then insert n {m..<n} else {})
+inj_on Inr A
+(rel_set A ===> rel_set A ===> rel_set A) union union
+(\<And>x. x \<in> A \<Longrightarrow> \<exists>y. y \<in> B \<and> x \<subseteq> y) \<Longrightarrow> \<Union>A \<subseteq> \<Union>B
+(- a) mod (- b) = - (a mod b)
+m \<le> n \<Longrightarrow> n < Suc m \<longleftrightarrow> n = m
+A \<noteq> {} \<Longrightarrow> bdd_below (f ` A) \<Longrightarrow> \<Sqinter>(f ` insert a A) = inf (f a) (\<Sqinter>(f ` A))
+eval (pred_of_set A) x \<longleftrightarrow> x \<in>A
+finite (graph (map_of al))
+Gcd ( c ` A) div c dvd Gcd A
+transp r \<longleftrightarrow> trans {(x, y). r x y}
+sgn a = 0 \<longleftrightarrow> a = 0
+i < j \<Longrightarrow> 0 < k \<Longrightarrow> k * i < k * j
+(\<exists>x. P x) \<longleftrightarrow> P None \<or> (\<exists>x. P (Some x))
+(P k) \<Longrightarrow> (\<And>i. k \<le> i \<Longrightarrow> P i \<Longrightarrow> P (i + 1)) \<Longrightarrow> (\<And>i. k \<ge> i \<Longrightarrow> P i \<Longrightarrow> P (i - 1)) \<Longrightarrow> P i
+comp_fun_commute (\<lambda>x A'. if P x then Set.insert x A' else A')
+xs = ys \<longleftrightarrow> length xs = length ys \<and> (\<forall>(x,y) \<in> set (zip xs ys). x = y)
+0 \<le> n \<longleftrightarrow> True
+m dvd \<bar>k\<bar> \<longleftrightarrow> m dvd k
+(f(x := y)) x = y
+int_of_integer (of_int k) = k
+total_on {x} r
+\<lbrakk>Card_order (r::'a rel); Card_order (r'::'a set rel); r <o r'\<rbrakk> \<Longrightarrow> cardSuc r \<le>o r'
+(A \<squnion> B) x \<Longrightarrow> (A x \<Longrightarrow> P) \<Longrightarrow> (B x \<Longrightarrow> P) \<Longrightarrow> P
+C \<inter> (A - B) = (C \<inter> A) - (C \<inter> B)
+(right_unique A) \<Longrightarrow> (right_total B) \<Longrightarrow> right_total (A ===> B)
+range fst = UNIV
+(mono f) \<Longrightarrow> lfp (f ^^ Suc n) = lfp f
+ran (\<lambda>x. map_option f (m x)) = f ` ran m
+(True \<Longrightarrow> PROP P) \<equiv> PROP P
+antisym_on A r \<Longrightarrow> B \<subseteq> A \<Longrightarrow> antisym_on B r
+(f \<circ> g) \<circ> h = f \<circ> (g \<circ> h)
+inj (map f) = inj f
+(\<And>x. P x \<Longrightarrow> Q x) \<Longrightarrow> P \<le> Q
+(P \<longleftrightarrow> Q) \<longleftrightarrow> (P \<longrightarrow> Q) \<and> (Q \<longrightarrow> P)
+nat_of_natural (numeral k) = numeral k
+(Suc i \<le> j) \<Longrightarrow> sorted_list_of_set {i<..j} = Suc i # sorted_list_of_set {Suc i<..j}
+\<bar>\<bar>a\<bar> + \<bar>b\<bar>\<bar> = \<bar>a\<bar> + \<bar>b\<bar>
+int n = Abs_Integ (n, 0)
+- \<bottom> = \<top>
+(k + 1) div 2 = k div 2 \<longleftrightarrow> even k
+finite {i :: int. a < i \<and> i < b}
+c < 0 \<Longrightarrow> a < - (b / c) \<longleftrightarrow> - b < a * c
+lcm 0 a = 0
+reflp r \<Longrightarrow> reflp s \<Longrightarrow> reflp (r \<sqinter> s)
+iso_tuple_update_accessor_cong_assist upd ac \<Longrightarrow> upd id = id
+(inverse a < inverse b) \<Longrightarrow> (0 < a) \<Longrightarrow> b < a
+a \<le> b \<Longrightarrow> b = c \<Longrightarrow> a \<le> c
+(\<And>x. x \<in> A \<Longrightarrow> m \<le> x) \<Longrightarrow> bdd_below A
+(\<And>x. x \<in> set xs \<Longrightarrow> P x) \<Longrightarrow> takeWhile P (xs @ ys) = xs @ takeWhile P ys
+P (snd p) (fst p) \<Longrightarrow> (\<And>x y. P y x \<Longrightarrow> Q (f x y)) \<Longrightarrow> Q (let (x, y) = p in f x y)
+\<not> P \<Longrightarrow> eval (not_pred (Pred (\<lambda>u. P))) ()
+{0..Suc n} = insert (Suc n) {0..n}
+(\<And>n. z = int n \<Longrightarrow> P) \<Longrightarrow> (\<And>n. z = - (int n) \<Longrightarrow> P) \<Longrightarrow> P
+A \<union> \<Inter>B = (\<Inter>C\<in>B. A \<union> C)
+insert a A \<times> insert b B = insert (a,b) (A \<times> insert b B \<union> {a} \<times> B)
+snd \<circ> ((\<lambda>x. (x, x)) \<circ> fst) = fst
+x \<in> these A \<longleftrightarrow> Some x \<in> A
+(a::'a::order) < f b \<Longrightarrow> (b::'b::order) < c \<Longrightarrow> (!!x y. x < y \<Longrightarrow> f x < f y) \<Longrightarrow> a < f c
+frequently P F \<Longrightarrow> eventually Q F \<Longrightarrow> frequently (\<lambda>x. P x \<and> Q x) F
+max (Suc (length xs)) (foldr (\<lambda>xs. max (length xs)) xss 0) = Suc (max (length xs) (foldr (\<lambda>x. max (length x - Suc 0)) (filter (\<lambda>ys. ys \<noteq> []) xss) 0))
+(normalize a = a) \<Longrightarrow> is_unit a \<longleftrightarrow> a = 1
+x \<le> y \<longleftrightarrow> x < y \<or> x = y
+a * (b / c) = (a * b) / c
+A \<subseteq> B \<Longrightarrow> Fpow A \<subseteq> Fpow B
+\<lbrakk> x = y; \<And>z. z \<in> set_option y =simp=> f z = g z \<rbrakk> \<Longrightarrow> bind x f = bind y g
+empty \<subseteq>\<^sub>m g
+sort_key (\<lambda>x. c) xs = xs
+Cinfinite r1 \<Longrightarrow> Cinfinite (r1 +c r2)
+- min x y = max (- x) (- y)
+Quotient R Abs Rep T \<longleftrightarrow> (\<forall>a b. T a b \<longrightarrow> Abs a = b) \<and> (\<forall>b. T (Rep b) b) \<and> R = T OO conversep T
+(A \<subseteq> S) \<Longrightarrow> (finite A) \<Longrightarrow> fold_graph f z A (fold f z A)
+lcm (normalize a) b = lcm a b
+insert a (Collect P) = {u. u \<noteq> a \<longrightarrow> P u}
+lcm (nat \<bar>k\<bar>) n = nat (lcm k (int n))
+{} O R = {}
+x > 0 \<Longrightarrow> pochhammer x n > 0
+rotate (m+n) = rotate m \<circ> rotate n
+a < b / c \<longleftrightarrow> (if 0 < c then a * c < b else if c < 0 then b < a * c else a < 0)
+inj_on f (g ` A) \<Longrightarrow> inj_on g A \<Longrightarrow> x \<in> f ` g ` A \<Longrightarrow> the_inv_into A (f \<circ> g) x = (the_inv_into A g \<circ> the_inv_into (g ` A) f) x
+x \<le> \<Squnion>A \<longleftrightarrow> (\<forall>y<x. \<exists>a\<in>A. y < a)
+bdd_above {a ..< b}
+c \<in> chains S \<Longrightarrow> z \<in> S \<Longrightarrow> \<forall>x \<in> c. x \<subseteq> z \<Longrightarrow> {z} \<union> c \<in> chains S
+((R1 ===> R2) f g) \<Longrightarrow> (R1 x y) \<Longrightarrow> R2 (f x) (g y)
+{u. \<exists>x. u = f x} = range f
+(- (a mod b)) mod b = (- a) mod b
+contained xq Q \<longleftrightarrow> pred_of_seq xq \<le> Q
+apsnd id = id
+Card_order r \<Longrightarrow> r \<le>o r
+k \<le> j \<Longrightarrow> j - k + i = j + i - k
+power_int x (int n) = x ^ n
+P \<le> Q \<Longrightarrow> P \<longrightarrow> Q
+((k, v) \<in> graph (m |` A)) \<Longrightarrow> k \<in> A
+(\<And>f g e x y. map_sum f g (if e then x else Inr y) = (if e then map_sum f g x else Inr (g y))) \<Longrightarrow> \<And>f g e x y. map_sum f g (if e then x else Inl y) = (if e then map_sum f g x else Inl (f y))
+of_nat (Suc m) = 1 + of_nat m
+finite I \<Longrightarrow> I \<noteq> {} \<Longrightarrow> (\<And>i. i \<in> I \<Longrightarrow> 1 < f i) \<Longrightarrow> 1 < prod f I
+sorted (map f xs) \<Longrightarrow> sorted (map f (remove1 x xs))
+f x \<equiv> g \<Longrightarrow> Let x f \<equiv> g
+(compat r r' f) \<Longrightarrow> (wf r') \<Longrightarrow> wf r
+\<not> (P \<longrightarrow> Q) \<longleftrightarrow> P \<and> \<not> Q
+map_filter f (x # xs) = (case f x of None \<Rightarrow> map_filter f xs | Some y \<Rightarrow> y # map_filter f xs)
+\<Sqinter>(f ` A) \<le> x \<longleftrightarrow> (\<forall>y>x. \<exists>i\<in>A. y > f i)
+xs [i := x, i := y] = xs [i := y]
+A \<subseteq> (fst ` A \<times> snd ` A)
+List.coset xs \<union> A = List.coset (List.filter (\<lambda>x. x \<notin> A) xs)
+Field(Restr r A) \<le> A
+(\<And>x. P x \<Longrightarrow> f x \<in> B) \<Longrightarrow> f ` {x. P x} \<subseteq> B
+{a <..< b} \<subseteq> { c .. d } \<longleftrightarrow> (a < b \<longrightarrow> c \<le> a \<and> b \<le> d)
+filter P (sort_key f xs) = sort_key f (filter P xs)
+(\<Sum>k = 0..m. (r gchoose k) * (r/2 - of_nat k)) = of_nat(Suc m) / 2 * (r gchoose (Suc m))
+(sorted (rev (map f xs))) \<Longrightarrow> filter ?P xs = ?tW
+list_all2 P [] ys = (ys = [])
+x \<le> 0 \<Longrightarrow> 0 \<le> y \<Longrightarrow> x / y \<le> 0
+Bleast (set xs) P = (case filter P (sort xs) of x#xs \<Rightarrow> x | [] \<Rightarrow> abort_Bleast (set xs) P)
+(\<And>x y. R x y \<Longrightarrow> f x < f y) \<Longrightarrow> wfp R
+(\<Inter>y\<in>A. c) = (if A = {} then UNIV else c)
+(finite M) \<Longrightarrow> (M \<noteq> {}) \<Longrightarrow> (\<And>m n. \<lbrakk>m \<in> M; n \<in> M\<rbrakk> \<Longrightarrow> lcm m n \<in> M) \<Longrightarrow> Lcm M \<in> M
+a \<in> f -` {b} \<longleftrightarrow> f a = b
+P x \<Longrightarrow> m (arg_min m P) \<le> m x
+x + max y z = max (x + y) (x + z)
+(bi_total A) \<Longrightarrow> (bi_total B) \<Longrightarrow> ((A ===> B ===> (=)) ===> (=)) right_total right_total
+a \<in> Domain r \<longleftrightarrow> (\<exists>y. (a, y) \<in> r)
+HOL.equal k k \<longleftrightarrow> True
+drop n (tl xs) = tl(drop n xs)
+(+) = (\<lambda>a b. nat (int a + int b))
+(R\<^sup>*)\<^sup>+ = R\<^sup>*
+(butlast ^^ n) xs = take (length xs - n) xs
+\<lbrakk>a \<le> b; 0 \<le> c\<rbrakk> \<Longrightarrow> a/c \<le> b/c
+(finite S) \<Longrightarrow> comp_fun_commute (\<lambda>(x,y) A. Finite_Set.fold (\<lambda>(w,z) A'. if y = w then Set.insert (x,z) A' else A') A S)
+UNIV = insert None (range Some)
+x < y \<Longrightarrow> y < z \<Longrightarrow> x < z
+\<Union>(f ` insert a B) = f a \<union> \<Union>(f ` B)
+(bi_unique A) \<Longrightarrow> (rel_set A ===> rel_set A ===> (=)) (\<subseteq>) (\<subseteq>)
+x < Max A \<longleftrightarrow> (\<exists>a\<in>A. x < a)
+irrefl (r - Id)
+z \<noteq> 0 \<Longrightarrow> x / z - y = (x - y * z) / z
+x \<in> set xs \<Longrightarrow> \<exists>ys zs. xs = ys @ x # zs \<and> x \<notin> set ys
+R OO S \<le> T \<Longrightarrow> vimage2p f g R OO vimage2p g h S \<le> vimage2p f h T
+\<lbrakk>r <o r'; r' <o r''\<rbrakk> \<Longrightarrow> r <o r''
+(\<And>y. y \<in> A \<Longrightarrow> y \<le> x) \<Longrightarrow> (\<And>y. (\<And>z. z \<in> A \<Longrightarrow> z \<le> y) \<Longrightarrow> x \<le> y) \<Longrightarrow> \<Squnion>A = x
+x \<in> UNIV
+m \<le> m * m
+zip (map fst zs) (map snd zs) = zs
+(n > 0) \<Longrightarrow> 2 * (\<Sum>i\<le>n. if odd i then of_nat (n choose i) else 0) = (2 ^ n :: 'a::comm_ring_1)
+case_prod f p = f (fst p) (snd p)
+A \<noteq> {} \<Longrightarrow> bdd_above A \<Longrightarrow> bdd_below A \<Longrightarrow> Inf A \<le> Sup A
+at_top = (\<Sqinter>k\<in>{c::'a::linorder..}. principal {k ..})
+(m \<le> n) \<Longrightarrow> m choose k \<le> n choose k
+(\<And>x y. x \<le> y \<Longrightarrow> f x \<ge> f y) \<Longrightarrow> antimono f
+left_unique R \<longleftrightarrow> (\<forall>z. \<exists>\<^sub>\<le>\<^sub>1x. R x z)
+{0..<Suc n} = insert 0 (Suc ` {0..<n})
+\<forall>x \<in> set (zip a b). case_prod P x \<Longrightarrow> length a = length b \<Longrightarrow> list_all2 P a b
+\<Squnion> (g ` f ` A) = \<Squnion> ((g \<circ> f) ` A)
+a dvd c - b \<longleftrightarrow> a dvd b - c
+pochhammer (a + b) n = (\<Sum>k\<le>n. of_nat (n choose k) * pochhammer a k * pochhammer b (n - k))
+a dvd c \<Longrightarrow> gcd a b dvd c
+|A <+> A| =o |A \<times> (UNIV::bool set)|
+b \<le> \<Sqinter>A \<longleftrightarrow> (\<forall>a\<in>A. b \<le> a)
+inj_on f (\<Union>(set ` A)) \<Longrightarrow> inj_on (map f) A
+dom f = {} \<longleftrightarrow> f = empty
+0 \<le> a \<Longrightarrow> 0 \<le> a ^ n
+(\<And>x y. x \<in> S \<Longrightarrow> y \<in> S \<Longrightarrow> ord x y \<or> ord y x) \<Longrightarrow> chain ord S
+x \<le> y \<Longrightarrow> min x y = x
+a - b = a - c \<Longrightarrow> b = c
+m \<le> 1+n \<Longrightarrow> {m..1+n} = insert (1+n) {m..n::int}
+\<not> trivial_limit (at_bot ::('a::linorder) filter)
+(r =o r') = (r \<le>o r' \<and> r' \<le>o r)
+I \<noteq> {} \<Longrightarrow> (\<And>i. i \<in> I \<Longrightarrow> f i \<le> c) \<Longrightarrow> \<Sqinter>(f ` I) = c \<longleftrightarrow> (\<forall>i\<in>I. f i = c)
+c \<le> b + c - a
+(\<And>i. i \<in> A \<Longrightarrow> f i \<le> x) \<Longrightarrow> (\<And>y. (\<And>i. i \<in> A \<Longrightarrow> f i \<le> y) \<Longrightarrow> x \<le> y) \<Longrightarrow> (\<Squnion>i\<in>A. f i) = x
+of_nat n = (if n = 0 then 0 else 1 + of_nat (n - 1))
+a mod b = a - a div b * b
+\<lbrakk>bi_total A; bi_total B\<rbrakk> \<Longrightarrow> bi_total (A OO B)
+\<lbrakk>pairwise disjnt \<A>; \<And>X. X \<in> \<A> \<Longrightarrow> f X \<subseteq> X\<rbrakk> \<Longrightarrow> pairwise disjnt (f `\<A>)
+h \<equiv> lfp f \<Longrightarrow> mono f \<Longrightarrow> h = f h
+(A \<noteq> {}) \<Longrightarrow> (\<And>y. y \<in> A \<Longrightarrow> f y = a) \<Longrightarrow> some_elem (f ` A) = a
+(\<exists>x. P x) \<longleftrightarrow> (\<exists>x. P (Inl x)) \<or> (\<exists>x. P (Inr x))
+xs \<in> shuffles (filter P xs) (filter (\<lambda>x. \<not>P x) xs)
+these (insert (Some x) A) = insert x (these A)
+distinct (xs @ ys) = (distinct xs \<and> distinct ys \<and> set xs \<inter> set ys = {})
+Domain (R\<^sup>*) = UNIV
+length xs \<le> n \<Longrightarrow> drop n xs = []
+(finite {x\<in>A. B x \<noteq> {}}) \<Longrightarrow> (\<And>a. a \<in> A \<Longrightarrow> finite (B a)) \<Longrightarrow> finite (Sigma A B)
+wfp (\<lambda>x y. False)
+m \<le> n \<Longrightarrow> mono f \<Longrightarrow> (f ^^ m) \<bottom> \<le> (f ^^ n) \<bottom>
+prod_list xs = 0 \<longleftrightarrow> (0 :: 'a :: {semiring_no_zero_divisors, semiring_1}) \<in> set xs
+even (a * b) \<longleftrightarrow> even a \<or> even b
+(\<lambda>_. {}) \<circ> f = image g \<circ> (\<lambda>_. {})
+\<lbrakk> distinct xs; n < length xs \<rbrakk> \<Longrightarrow> set(xs[n := x]) = insert x (set xs - {xs!n})
+(a mod c = a' mod c) \<Longrightarrow> (b mod c = b' mod c) \<Longrightarrow> (a + b) mod c = (a' + b') mod c
+sorted xs = (\<forall>i j. i < j \<longrightarrow> j < length xs \<longrightarrow> xs ! i \<le> xs ! j)
+\<forall>x\<in>A. P x \<Longrightarrow> (P x \<Longrightarrow> Q) \<Longrightarrow> (x \<notin> A \<Longrightarrow> Q) \<Longrightarrow> Q
+{i..<j::int} = set [i..j - 1]
+(f \<circ>\<rightarrow> g) \<circ>> h = f \<circ>\<rightarrow> (\<lambda>x. g x \<circ>> h)
+Lcm K \<ge> 0
+x \<in> A \<Longrightarrow> \<langle>id, g\<rangle> x \<in> (Collect (case_prod (Grp A g)))
+b \<le> x \<Longrightarrow> a \<sqinter> b \<le> x
+totalp_on A R \<Longrightarrow> totalp_on A (tranclp R)
+(A \<inter> B) - C = A \<inter> (B - C)
+(a :: 'a :: linordered_field) < b \<Longrightarrow> 0 \<le> a \<Longrightarrow> 0 < n \<Longrightarrow> power_int a n < power_int b n
+max m n + q = max (m + q) (n + q)
+rotate m (rotate n xs) = rotate (m+n) xs
+n \<le> n + m
+a \<le> b \<Longrightarrow> c \<le> 0 \<Longrightarrow> 0 < a * b \<Longrightarrow> c / a \<le> c / b
+a / c \<le> b / c \<longleftrightarrow> (0 < c \<longrightarrow> a \<le> b) \<and> (c < 0 \<longrightarrow> b \<le> a)
+0 \<le> a \<Longrightarrow> 0 \<le> b \<Longrightarrow> 0 \<le> a * b
+min x y \<le> z \<longleftrightarrow> x \<le> z \<or> y \<le> z
+(a dvd c) \<Longrightarrow> (b dvd c) \<Longrightarrow> (coprime a b) \<Longrightarrow> a * b dvd c
+(CHAR('a) = 2) \<Longrightarrow> -(x :: 'a) = x
+length (rev xs) = length xs
+Quot_True (All P) \<Longrightarrow> Quot_True P
+(\<And>fa y. fa \<in> range f \<Longrightarrow> y \<in> range fa \<Longrightarrow> P y) \<equiv> (\<And>x xa. P (f x xa))
+inj f \<longleftrightarrow> inv f \<circ> f = id
+rev (rev xs) = xs
+List.extract P xs = Some (ys, y, zs) \<longleftrightarrow> xs = ys @ y # zs \<and> P y \<and> \<not> (\<exists> y \<in> set ys. P y)
+finite (A :: 'a set) \<Longrightarrow> finite (- A) \<longleftrightarrow> finite (UNIV :: 'a set)
+P \<Longrightarrow> P \<squnion> Q
+zip xs (replicate n y) = map (\<lambda>x. (x, y)) (take n xs)
+\<bar>z\<bar> < 1 \<longleftrightarrow> z = 0
+class.complete_lattice Sup Inf sup (\<ge>) (>) inf \<top> \<bottom>
+eventually P F \<Longrightarrow> \<not> eventually Q F \<Longrightarrow> \<not> eventually (\<lambda>x. P x \<longrightarrow> Q x) F
+(set (map fst xs) = set (map fst ys)) \<Longrightarrow> (\<forall>k\<in>set (map fst xs). map_of xs k = map_of ys k) \<Longrightarrow> map_of xs = map_of ys
+(\<not> Q \<Longrightarrow> P) \<Longrightarrow> P \<or> Q
+case_option g h (yield xq) = case_list g (\<lambda>x. curry h x \<circ> lazy_sequence_of_list) (list_of_lazy_sequence xq)
+apsnd f (x, y) = (x, f y)
+k dvd m \<Longrightarrow> k dvd n \<Longrightarrow> k dvd (m mod n)
+(bi_unique A) \<Longrightarrow> (bi_total A) \<Longrightarrow> ((A ===> (=)) ===> (=)) Ex1 Ex1
+z \<noteq> 0 \<Longrightarrow> - (x / z) + y = (- x + y * z) / z
+(listsp A (xs @ ys)) = (listsp A xs \<and> listsp A ys)
+finite (dom (f :: 'a \<rightharpoonup> 'b)) \<Longrightarrow> \<not> finite (UNIV :: 'a set) \<Longrightarrow> \<exists>x. f x = None
+eval (- P) = - eval P
+map (\<lambda>n. n - Suc 0) [Suc m..<Suc n] = [m..<n]
+0 < (d::int) \<Longrightarrow> z < x + (\<bar>x - z\<bar> + 1) * d
+gcd x y = gcd y (x mod y)
+\<And>p. (\<And>a b. p = (a, b) \<Longrightarrow> z \<in> c a b) \<Longrightarrow> z \<in> (case p of (a, b) \<Rightarrow> c a b)
+((x,y) \<in> r') \<Longrightarrow> (iso r r' f) \<Longrightarrow> (inv_into (Field r) f x, inv_into (Field r) f y) \<in> r
+0 < nat z \<longleftrightarrow> 0 < z
+r\<inverse>\<inverse> \<le> s \<inverse>\<inverse> \<longleftrightarrow> r \<le> s
+The P = (case filter P enum of [x] \<Rightarrow> x | _ \<Rightarrow> enum_the P)
+(\<And>x y. Grp P id x y \<Longrightarrow> Grp Q id (f x) (f y)) \<equiv> (\<And>x. x \<in> P \<Longrightarrow> f x \<in> Q)
+lcm a a = normalize a
+(\<And>x. x \<in> A) \<Longrightarrow> UNIV = A
+(y > 0) \<Longrightarrow> gcd x y = gcd y (x mod y)
+(eventually P F) \<Longrightarrow> eventually (\<lambda>x. P (f x)) (filtercomap f F)
+\<lbrakk>\<forall>x. s = Inl x \<longrightarrow> P; \<forall>x. s = Inr x \<longrightarrow> P\<rbrakk> \<Longrightarrow> P
+(x < 0) \<Longrightarrow> \<exists>n. x = - (int (Suc n))
+P \<and> Q \<longleftrightarrow> Q \<and> P
+inj f \<Longrightarrow> B \<subseteq> f ` A \<Longrightarrow> f -` B \<subseteq> A
+\<lbrakk> list_all2 P xs ys; P x y \<rbrakk> \<Longrightarrow> list_all2 P (xs[i:=x]) (ys[i:=y])
+wf (int_ge_less_than2 d)
+- (A \<times> UNIV) = (-A) \<times> UNIV
+(\<And>x::'a::{}. induct_true) \<equiv> Trueprop induct_true
+(Well_order r) \<Longrightarrow> (Well_order r') \<Longrightarrow> (embed r r' f) \<Longrightarrow> (embedS r' r'' f') \<Longrightarrow> embedS r r'' (f' \<circ> f)
+(finite A) \<Longrightarrow> (P {}) \<Longrightarrow> (\<And>b A. finite A \<Longrightarrow> \<forall>a\<in>A. a < b \<Longrightarrow> P A \<Longrightarrow> P (insert b A)) \<Longrightarrow> P A
+(a ^ n < b ^ n) \<Longrightarrow> (0 \<le> b) \<Longrightarrow> a < b
+UNIV = List.coset []
+X \<noteq> {} \<Longrightarrow> (X, {}) \<in> min_strict
+Id_on {x. A x} = Collect (\<lambda>(x, y). x = y \<and> A x)
+\<not> P \<Longrightarrow> (if P then x else y) = y
+A \<subseteq> insert x B \<longleftrightarrow> (if x \<in> A then A - {x} \<subseteq> B else A \<subseteq> B)
+finite {x. P x} \<or> finite {x. Q x} \<Longrightarrow> finite {x. P x \<and> Q x}
+trans Id
+antimono f \<Longrightarrow> x \<le> y \<Longrightarrow> f x \<ge> f y
+f \<subseteq>\<^sub>m g \<Longrightarrow> g++f = g
+m < n \<or> m = n \<Longrightarrow> m \<le> n
+curry (case_prod f) = f
+gcd (nat \<bar>k\<bar>) n = nat (gcd k (int n))
+a \<noteq> b \<Longrightarrow> a \<le> b \<Longrightarrow> a < b
+P OO P ^^ n = P ^^ n OO P
+bij_betw Suc M N \<longleftrightarrow> Suc ` M = N
+(finite I) \<Longrightarrow> (i \<in> I) \<Longrightarrow> (1 < f i) \<Longrightarrow> (\<And>i. i \<in> I \<Longrightarrow> 1 \<le> f i) \<Longrightarrow> 1 < prod f I
+(c dvd a) \<Longrightarrow> (c dvd b) \<Longrightarrow> (\<not> is_unit c) \<Longrightarrow> \<not> coprime a b
+(\<lambda>t. t-d)`{a..b} = {a-d..b-d}
+Gcd K \<ge> 0
+wf R \<Longrightarrow> wfp (in_rel R)
+max x y + z = max (x + z) (y + z)
+surj id
+a dvd gcd b c \<Longrightarrow> a dvd b
+\<not> 1 \<le> 0
+Suc n < m \<longleftrightarrow> (\<exists>m'. m = Suc m' \<and> n < m')
+b = f x \<Longrightarrow> b \<in> range f
+Domain r = {x. \<exists>y. (x, y) \<in> r}
+Inr \<equiv> (\<lambda>a. xtor (id_bnf (Inr a)))
+filtermap f (filtermap g F) = filtermap (\<lambda>x. f (g x)) F
+nat (int n) = n
+p2 \<le>o r2 \<Longrightarrow> q *c p2 \<le>o q *c r2
+(distinct xs) \<Longrightarrow> (a \<notin> set xs - {xs!i}) \<Longrightarrow> distinct (xs[i:=a])
+m mod (Suc (Suc 0)) = (1::nat) \<longleftrightarrow> \<not> 2 dvd m
+sym r \<Longrightarrow> trans r \<Longrightarrow> r\<inverse> O r \<subseteq> r
+inj_on rev A
+single_valuedp r \<Longrightarrow> r x y \<Longrightarrow> r x z \<Longrightarrow> y = z
+\<lbrakk> xs \<noteq> []; \<And>x. P [x]; \<And>x xs. xs \<noteq> [] \<Longrightarrow> P xs \<Longrightarrow> P (x # xs)\<rbrakk> \<Longrightarrow> P xs
+0 < n \<Longrightarrow> a ^ (n - 1) * a = a ^ n
+r\<^sup>*\<^sup>* x y \<Longrightarrow> equivclp r x y
+\<lbrakk>|A| \<le>o r; Card_order r; x \<in> A; y \<in> A\<rbrakk> \<Longrightarrow> toCard A r x = toCard A r y \<longleftrightarrow> x = y
+length a = length b \<Longrightarrow> (\<And>n. n < length a \<Longrightarrow> P (a!n) (b!n)) \<Longrightarrow> list_all2 P a b
+Some ` these A = {x\<in>A. x \<noteq> None}
+(k \<le> n) \<Longrightarrow> fact k * of_nat (n choose k) = (fact n / fact (n - k) :: 'a::field_char_0)
+(i \<in> A) \<Longrightarrow> (f i < g i) \<Longrightarrow> (finite A) \<Longrightarrow> (\<And>i. i \<in> A \<Longrightarrow> 0 \<le> f i \<and> f i \<le> g i) \<Longrightarrow> (\<And>i. i \<in> A \<Longrightarrow> 0 < g i) \<Longrightarrow> prod f A < prod g A
+filter p (concat xs) = concat (map (filter p) xs)
+even n \<Longrightarrow> (- a) ^ n = a ^ n
+map f (filter P xs) = map_filter (\<lambda>x. if P x then Some (f x) else None) xs
+\<forall>C\<in>chains A. \<exists>U\<in>A. \<forall>X\<in>C. X \<subseteq> U \<Longrightarrow> \<exists>M\<in>A. \<forall>X\<in>A. M \<subseteq> X \<longrightarrow> X = M
+a ^ Suc n = a ^ n * a
+(x, x) \<in> R ^^ 0
+(dom m1 \<inter> dom m2 = {}) \<Longrightarrow> ran (m1 ++ m2) = ran m1 \<union> ran m2
+(\<And>x. P x) \<Longrightarrow> eventually P F
+eventually (\<lambda>n. P (n + k)) sequentially \<longleftrightarrow> eventually P sequentially
+gcd (m - n) n = gcd m n
+(list_all2 (list_all2 A) ===> list_all2 A) concat concat
+\<lbrakk>\<And>x y. (f x = f y) = (x = y); \<And>y. \<exists>x. y = f x\<rbrakk> \<Longrightarrow> bij f
+(eventually P F) \<Longrightarrow> (\<And>x. P x \<Longrightarrow> Q x \<longleftrightarrow> R x) \<Longrightarrow> frequently Q F \<longleftrightarrow> frequently R F
+\<not> \<bar>a\<bar> < 0
+equiv A r \<Longrightarrow> r\<inverse> O r = r
+g = id \<Longrightarrow> f \<circ> xtor = s \<circ> (id_bnf \<circ> g \<circ> id_bnf) \<Longrightarrow> f = ctor_rec s
+i - j - k = i - k - j
+(0 \<le> a / \<bar>b\<bar>) = (0 \<le> a \<or> b = 0)
+k * lcm a b = lcm (k * a) (k * b) * unit_factor k
+atMost (0::nat) = {0}
+trans r \<longleftrightarrow> (\<forall>(x, y1) \<in> r. \<forall>(y2, z) \<in> r. y1 = y2 \<longrightarrow> (x, z) \<in> r)
+(Linear_order r) \<Longrightarrow> wf (r - Id) \<longleftrightarrow> (\<forall>A \<subseteq> Field r. A \<noteq> {} \<longrightarrow> (\<exists>a \<in> A. \<forall>a' \<in> A. (a, a') \<in> r))
+refl_on A (Id_on A)
+finite A = ( |A| <o natLeq)
+remove1 x (xs @ ys) = (if x \<in> set xs then remove1 x xs @ ys else xs @ remove1 x ys)
+x \<sqinter> y = \<top> \<longleftrightarrow> x = \<top> \<and> y = \<top>
+inj f \<Longrightarrow> f x = f y \<Longrightarrow> x = y
+inj_on f C \<Longrightarrow> A \<subseteq> C \<Longrightarrow> B \<subseteq> C \<Longrightarrow> f ` (A \<inter> B) = f ` A \<inter> f ` B
+(finite A) \<Longrightarrow> pred_of_set A = Finite_Set.fold sup bot (Predicate.single ` A)
+- (A - B) = - A \<union> B
+(bij_betw f I J) \<Longrightarrow> (\<forall>j \<in> J. |A j| =o |B j|) \<Longrightarrow> |SIGMA i : I. A (f i)| =o |SIGMA j : J. B j|
+\<And>p. p \<in> r \<Longrightarrow> p \<in> r\<^sup>+
+(left_unique A) \<Longrightarrow> (left_total B) \<Longrightarrow> left_total (A ===> B)
+(b \<noteq> 0) \<Longrightarrow> (unit_factor b = unit_factor d) \<Longrightarrow> (coprime a b) \<Longrightarrow> (coprime c d) \<Longrightarrow> a * d = b * c \<longleftrightarrow> a = c \<and> b = d
+a / b = 1 \<longleftrightarrow> b \<noteq> 0 \<and> a = b
+((x,y) \<in> less_than) = (x<y)
+finite (UNIV :: 'a set) \<Longrightarrow> finite (UNIV :: 'b set) \<Longrightarrow> finite (UNIV :: ('a \<times> 'b) set)
+(c \<in> A \<Longrightarrow> False) \<Longrightarrow> c \<in> - A
+(length ys = length xs) \<Longrightarrow> (length zs = length xs) \<Longrightarrow> (x \<notin> set xs) \<Longrightarrow> ((map_of (zip xs ys))(x \<mapsto> y) = (map_of (zip xs zs))(x \<mapsto> z)) \<Longrightarrow> map_of (zip xs ys) = map_of (zip xs zs)
+(SIGMA i:I. A i \<union> B i) = Sigma I A \<union> Sigma I B
+(\<exists>x::'a. P x) \<Longrightarrow> (\<And>x. P x \<Longrightarrow> Q) \<Longrightarrow> Q
+numeral w \<in> \<nat>
+\<lbrakk> finite A; A \<noteq> {} \<rbrakk> \<Longrightarrow> m = Max A \<longleftrightarrow> m \<in> A \<and> (\<forall>a \<in> A. a \<le> m)
+(\<And>x y. x \<in> set xs \<Longrightarrow> y \<in> set xs \<Longrightarrow> P x y \<longleftrightarrow> Q x y) \<Longrightarrow> (xs = ys) \<Longrightarrow> successively P xs \<longleftrightarrow> successively Q ys
+y \<noteq> 0 \<Longrightarrow> z \<noteq> 0 \<Longrightarrow> x / y - w / z = (x * z - w * y) / (y * z)
+(- y \<le> x) \<Longrightarrow> - x \<le> y
