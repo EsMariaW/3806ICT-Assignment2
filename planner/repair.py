@@ -161,28 +161,27 @@ _gemini_last_call_time: float = 0.0
 
 def _generate_simple(prompt: str, model: Optional[str] = None, *, timeout_s: Optional[int] = None) -> str:
     m = model or DEFAULT_MODEL
-    timeout = timeout_s or OLLAMA_TIMEOUT_S
+    timeout = timeout_s if timeout_s is not None else OLLAMA_TIMEOUT_S
     display_model = m
     dump = os.getenv("LLM_DUMP", "").strip().lower() in ("1", "true", "yes", "on")
 
-    if dump:
-        print(f"{'='*60}", flush=True)
-        print(f"[Repair] LLM Prompt:\n{prompt.rstrip()}", flush=True)
-        print(f"{'-'*60}", flush=True)
+    # if dump:
+    #     print(f"{'='*60}", flush=True)
+    #     print(f"[Repair] LLM Prompt:\n{prompt.rstrip()}", flush=True)
+    #     print(f"{'-'*60}", flush=True)
     
     if m.startswith("hf:"):
         raw = _hf_generate(prompt, m[3:], timeout)
     elif m.startswith("gemini:"):
-        # #Fix: Enforce a minimum gap between successive Gemini REST calls.
-        # #Fix: _repair_block drives up to 3 rounds × 3 stages so without this
-        # #Fix: guard all iterations land within the same second, causing 429s.
+        #Fix: Enforce a minimum gap between successive Gemini REST calls.
+        #Fix: _repair_block drives up to 3 rounds × 3 stages so without this
+        #Fix: guard all iterations land within the same second, causing 429s.
         global _gemini_last_call_time
         elapsed = time.monotonic() - _gemini_last_call_time
         if elapsed < _GEMINI_INTER_REQUEST_DELAY_S:
             time.sleep(_GEMINI_INTER_REQUEST_DELAY_S - elapsed)
         raw = _gemini_generate(prompt, m[7:], timeout)
-        print(f"raw: {raw}")
-        # #Fix: Record the time of this call so the next call can compute the gap.
+        #Fix: Record the time of this call so the next call can compute the gap.
         _gemini_last_call_time = time.monotonic()
     elif m.startswith("ollama:"):
         m = m[7:]
@@ -321,11 +320,12 @@ def _propose_block_repair(*, goal: str, errors: List[str], ce_hints: Dict[str, L
         raw_output = _generate_simple(prompt, model=model, timeout_s=timeout_s)
         # Sanitize the raw string exactly once right here
         santised_output =  _sanitize_llm_block(raw_output)
-        #print(f"[repair] santized_output = {santised_output}", flush=True)
+        # print(f"[repair] raw_output = {raw_output}", flush=True)
+        # print(f"[repair] santized_output = {santised_output}", flush=True)
         return santised_output
     except Exception as e:
         # Un-commenting this is critical to diagnose why the repair returns ""
-        #print(f"[repair] LLM block proposal generation failed: {type(e).__name__}: {e}", flush=True)
+        print(f"[repair] LLM block proposal generation failed: {type(e).__name__}: {e}", flush=True)
         return ""
 
 def propose_rule_based_repairs(goal_text: str, state_block: str, header: str, facts: List[str]) -> List[RepairOp]:
@@ -876,25 +876,29 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
             fails_txt = "(none)"        
         
         try:
-            # blk = _propose_block_repair(
-            #     goal=goal_text, errors=err_texts, ce_hints=ce, 
-            #     proof_context=proof_context, block_type=block_type,
-            #     block_text=block, model=model, timeout_s=timeout, why=why,
-            #     prior_failed_blocks=fails_txt
-            # )
+            blk = _propose_block_repair(
+                goal=goal_text, errors=err_texts, ce_hints=ce, 
+                proof_context=proof_context, block_type=block_type,
+                block_text=block, model=model, timeout_s=timeout, why=why,
+                prior_failed_blocks=fails_txt
+            )
+            if trace:
+                print(f"blk:\n{blk}", flush=True)
 
             # remove this
-            blk = """
-have "rev ((Cons x xs) @ ys) = rev (x # (xs @ ys))"
-      by simp
-"""
-            blk = _sanitize_llm_block(blk)
-            print(f"blk:\n{blk}", flush=True)
+#             blk = """
+# also have "... = rev (xs @ ys) @ [x]"
+#       by simp
+# """
+#             blk = _sanitize_llm_block(blk)
+#             print(f"blk:\n{blk}", flush=True)
 
         except Exception as e:
             # #Fix: On any exception (including a 429 that slipped past raise_for_status,
             # #Fix: or a network blip), wait one full delay period before trying the
             # #Fix: next round rather than immediately hammering the API again.
+            if trace:
+                print(f"[repair] in _repair_block hit exception when calling _propose_block_repair: {type(e).__name__}: {e}", flush=True)
             if model and model.startswith("gemini:"):
                 err_str = str(e)
                 if "429" in err_str:
