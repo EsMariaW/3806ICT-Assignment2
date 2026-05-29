@@ -8,17 +8,23 @@ from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 import hashlib
+import planner.skeleton as _skel_mod
 
 from planner.skeleton import (
-    Skeleton, find_sorry_spans, propose_isar_skeleton, propose_isar_skeleton_diverse_best, _quick_sketch_score
+    Skeleton, find_sorry_spans, propose_isar_skeleton, propose_isar_skeleton_diverse_best, _quick_sketch_score,
+    _generate_simple, _sanitize_outline
 )
-from planner.repair import try_cegis_repairs, regenerate_whole_proof, pop_false_subgoal_lines, _APPLY_OR_BY as _TACTIC_LINE_RE
+
+from planner.repair import try_cegis_repairs, regenerate_whole_proof, pop_false_subgoal_lines, \
+    _APPLY_OR_BY as _TACTIC_LINE_RE
 from prover.config import ISABELLE_SESSION
 from prover.isabelle_api import (
     build_theory, get_isabelle_client, last_print_state_block, start_isabelle_server,
 )
 from prover.prover import prove_goal
-from planner.goals import _print_state_before_hole, _log_state_block, _effective_goal_from_state, _first_lemma_line, _extract_goal_from_lemma_line, _cleanup_resources, _verify_full_proof, _run_theory_with_timeout
+from planner.goals import _print_state_before_hole, _log_state_block, _effective_goal_from_state, _first_lemma_line, \
+    _extract_goal_from_lemma_line, _cleanup_resources, _verify_full_proof, _run_theory_with_timeout
+
 
 def _hole_fingerprint(full_text: str, span: tuple[int, int], context: int = 80) -> str:
     """Stable key for a hole: hash a small window around the 'sorry'."""
@@ -28,11 +34,13 @@ def _hole_fingerprint(full_text: str, span: tuple[int, int], context: int = 80) 
     snippet = full_text[lo:hi]
     return hashlib.sha1(snippet.encode("utf-8")).hexdigest()[:16]
 
+
 # Constants
 _INLINE_BY_TAIL = re.compile(r"\s+by\s+.+$")
 _BARE_DOT = re.compile(r"(?m)^\s*\.\s*$")
 _HEAD_CMD_RE = re.compile(r"^\s*(have|show|obtain)\b")  # local copy to avoid new imports
 _ISA_VERIFY_TIMEOUT_S = int(os.getenv("ISABELLE_VERIFY_TIMEOUT_S", "30"))
+
 
 @dataclass(slots=True)
 class PlanAndFillResult:
@@ -44,12 +52,14 @@ class PlanAndFillResult:
     # goal statement itself fails to parse in Isabelle (not a prover failure).
     status: Optional[str] = None
 
+
 # ============================================================================
 # Hole Filling
 # ============================================================================
 
 def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int, int],
-                  goal_text: str, model: Optional[str], per_hole_timeout: int, *, trace: bool = False) -> Tuple[str, bool, str]:
+                   goal_text: str, model: Optional[str], per_hole_timeout: int, *, trace: bool = False) -> Tuple[
+    str, bool, str]:
     """Fill single hole in proof."""
 
     # Check for stale hole
@@ -57,7 +67,7 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
         s_line_start = full_text.rfind("\n", 0, hole_span[0]) + 1
         prev_line_end = s_line_start - 1
         prev_prev_nl = full_text.rfind("\n", 0, prev_line_end) + 1
-        prev_line = full_text[prev_prev_nl:prev_line_end+1]
+        prev_line = full_text[prev_prev_nl:prev_line_end + 1]
     except Exception:
         prev_line = ""
         if trace:
@@ -69,7 +79,7 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
     #    show ?case      <-- start of hole, so remove it and the rest of the whole (everything encapsulating hole)
     #      sorry
     if (_INLINE_BY_TAIL.search(prev_line) or _TACTIC_LINE_RE.match(prev_line) or
-        prev_line.strip() in {"done", "."}):
+            prev_line.strip() in {"done", "."}):
         s, e = hole_span
         return full_text[:s] + "\n" + full_text[e:], True, "(stale-hole)"
 
@@ -128,7 +138,8 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
 
     fin = next((s for s in steps if s.startswith("by ") or s.strip() == "done"), "")
     if not fin:
-        fin = next((x for x in fin_candidates if isinstance(x, str) and (x.startswith("by ") or x.strip() == "done")), "")
+        fin = next((x for x in fin_candidates if isinstance(x, str) and (x.startswith("by ") or x.strip() == "done")),
+                   "")
 
     # If neither steps nor recognized finishers were returned, report no-steps
     if not (applies or fin):
@@ -151,13 +162,13 @@ def _fill_one_hole(isabelle, session: str, full_text: str, hole_span: Tuple[int,
         replacement = indent + "\n".join(script_lines)
 
         new_text = (
-            full_text[:line_start]
-            + replacement
-            + full_text[line_end:]
+                full_text[:line_start]
+                + replacement
+                + full_text[line_end:]
         )
 
         return new_text, True, "\n".join(script_lines)
-        
+
         # Fallback: splice failed (e.g. bare proof...sorry...qed structure).
         # Try replacing the entire proof with a top-level finisher instead.
         # This handles the case where the LLM generates a minimal skeleton
@@ -221,11 +232,13 @@ def _insert_above_hole_keep_sorry(text: str, hole: Tuple[int, int], lines_to_ins
     payload = "".join(f"{indent}{ln.strip()}\n" for ln in lines_to_insert if ln.strip())
     return text[:s] + payload + text[s:]
 
+
 # --- helper: pick the sorry-span nearest a target offset (to preserve focus) ---
 def _nearest_sorry_span(spans: List[Tuple[int, int]], target_s: int) -> Optional[Tuple[int, int]]:
     if not spans:
         return None
     return min(spans, key=lambda sp: abs(sp[0] - target_s))
+
 
 # ============================================================================
 # Repair
@@ -262,6 +275,7 @@ def _tactic_spans_topdown(text: str) -> List[Tuple[int, int]]:
         off += len(line)
 
     return spans
+
 
 def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model: Optional[str],
                                  left_s, max_repairs_per_hole: int, trace: bool) -> Tuple[str, bool]:
@@ -313,7 +327,7 @@ def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model:
             if trace:
                 print("[repair] Partial progress in topdown repair (unverified). Opening sorries...")
             full = patched
-            full2, opened = _open_minimal_sorries(isa, session, full)
+            full2, opened = _open_minimal_sorries(isa, session, full, trace)
             if opened:
                 full = full2
                 t_spans = _tactic_spans_topdown(full)
@@ -324,7 +338,9 @@ def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model:
 
     return full, False
 
-def _quick_state_and_errors(isabelle, session: str, text: str, *, timeout_s: Optional[int] = None) -> Tuple[str, List[str]]:
+
+def _quick_state_and_errors(isabelle, session: str, text: str, *, timeout_s: Optional[int] = None) -> Tuple[
+    str, List[str]]:
     """Run a theory quickly and return (last_state_block, error_messages).
 
     Best-effort utility used only to locate an error line for opening with 'sorry'.
@@ -373,16 +389,18 @@ def _quick_state_and_errors(isabelle, session: str, text: str, *, timeout_s: Opt
     except Exception as ex:
         return "", [str(ex)]
 
-def _extract_error_lines(errs: List[str]) -> List[int]:
+
+def _extract_error_lines(errs: List[str], trace) -> List[int]:
     """Extract 1-based line numbers from Isabelle error messages (best-effort)."""
     if not errs:
         return []
 
     patts = [
-        re.compile(r"(?i)\bline\s+(\d+)\b"),          # 'line 23'
-        re.compile(r"(?i)\bLine\s+(\d+)\b"),          # 'Line 23'
-        re.compile(r":(\d+):(\d+)\b"),                # 'Scratch.thy:23:5'
-        re.compile(r"\((\d+),(\d+)\)"),               # '(23,5)'
+        re.compile(r"(?i)\bline\s+(\d+)\b"),
+        re.compile(r"(?i)\bLine\s+(\d+)\b"),
+        re.compile(r'"line"\s*:\s*(\d+)'),
+        re.compile(r":(\d+):(\d+)\b"),
+        re.compile(r"\((\d+),(\d+)\)"),
     ]
 
     found: set[int] = set()
@@ -397,13 +415,17 @@ def _extract_error_lines(errs: List[str]) -> List[int]:
                 except Exception:
                     pass
 
+    if trace:
+        print(f"[Driver] _extract_error_lines() found: {found}")
     return sorted(found)
 
-def _open_minimal_sorries(isabelle, session: str, text: str) -> Tuple[str, bool]:
+
+def _open_minimal_sorries(isabelle, session: str, text: str, trace) -> Tuple[str, bool]:
     """Localize a failing finisher with minimal opening (replace 1 tactic with 'sorry').
 
     Returns (new_text, opened). Never raises.
     """
+
     def _ensure_nl(s: str) -> str:
         return s if s.endswith("\n") else s + "\n"
 
@@ -423,18 +445,32 @@ def _open_minimal_sorries(isabelle, session: str, text: str) -> Tuple[str, bool]
         # If even 'runs' crashes, do nothing.
         return _ensure_nl(text), False
 
+    # Define lines immediately so it's available for the fallback grep
+    lines = text.splitlines()
+
     # Document fails: find first error line, then open nearest tactic by turning it into 'sorry'
     try:
         _, errs = _quick_state_and_errors(isabelle, session, text)
-        err_lines = _extract_error_lines(errs)
+        err_lines = _extract_error_lines(errs, trace)
     except Exception:
         err_lines = []
 
     if not err_lines:
+        # Look for keywords like "Undefined fact" and grep your lines array for it
+        for raw in errs:
+            m = re.search(r'Undefined fact:\s*"([^"]+)"', str(raw))
+            if m:
+                fact_name = m.group(1)
+                for idx, line in enumerate(lines):
+                    if fact_name in line:
+                        err_lines.append(idx + 1) # Convert to 1-based index
+        # Keep things cleanly sorted if multiple fallback lines were found
+        err_lines = sorted(list(set(err_lines)))
+    
+    if not err_lines:
         return _ensure_nl(text), False
 
     failing_line_1based = min(err_lines)
-    lines = text.splitlines()
     failing_idx = failing_line_1based - 1
 
     for i in range(min(failing_idx, len(lines) - 1), -1, -1):
@@ -447,23 +483,24 @@ def _open_minimal_sorries(isabelle, session: str, text: str) -> Tuple[str, bool]
 
         m = _INLINE_BY_TAIL.search(line)
         if m:
-            indent = line[:len(line) - len(line.lstrip(" "))]
-            header = line[:m.start()].rstrip()
-            lines[i] = header
-            lines.insert(i + 1, f"{indent}sorry")
+            # Keep it inline! Replace the trailing 'by ...' with 'by sorry'
+            # or just 'sorry' depending on structural context. 'by sorry' is valid syntax.
+            header = line[:m.start()]
+            lines[i] = f"{header} by sorry"
             return _ensure_nl("\n".join(lines)), True
 
     return _ensure_nl(text), False
+
 
 # ============================================================================
 # Public API
 # ============================================================================
 
 def plan_outline(goal: str, *, model: Optional[str] = None, outline_k: Optional[int] = None,
-                outline_temps: Optional[Iterable[float]] = None, legacy_single_outline: bool = False,
-                priors_path: Optional[str] = None, context_hints: bool = False,
-                lib_templates: bool = False, alpha: float = 1.0, beta: float = 0.5,
-                gamma: float = 0.2, hintlex_path: Optional[str] = None, hintlex_top: int = 8) -> str:
+                 outline_temps: Optional[Iterable[float]] = None, legacy_single_outline: bool = False,
+                 priors_path: Optional[str] = None, context_hints: bool = False,
+                 lib_templates: bool = False, alpha: float = 1.0, beta: float = 0.5,
+                 gamma: float = 0.2, hintlex_path: Optional[str] = None, hintlex_top: int = 8) -> str:
     """Generate Isar outline with 'sorry' placeholders."""
     server_info, proc = start_isabelle_server(name="planner", log_file="logs/planner_ui.log")
     isa = get_isabelle_client(server_info)
@@ -486,6 +523,7 @@ def plan_outline(goal: str, *, model: Optional[str] = None, outline_k: Optional[
     finally:
         _cleanup_resources(isa, proc)
 
+
 _IDENT_RE = re.compile(r"\b([a-z][a-zA-Z0-9_']*)\b")
 # Tokens that are function/keyword/predicate names, not induction-variable candidates.
 _NON_VAR_TOKENS = frozenset({
@@ -497,6 +535,7 @@ _NON_VAR_TOKENS = frozenset({
     "inj_on", "inj", "surj", "bij", "finite", "infinite", "card", "image", "range",
     "dom", "ran", "comp", "fst", "snd", "min", "max", "abs", "gcd", "lcm",
 })
+
 
 def _candidate_induction_vars(goal: str) -> List[str]:
     """Heuristically pick variables to try induction on, in priority order.
@@ -528,6 +567,7 @@ def _candidate_induction_vars(goal: str) -> List[str]:
     seen.sort(key=lambda v: (0 if v in ("xs", "ys", "zs", "as", "bs", "n", "m") else 1))
     return seen[:2]  # cap: at most 2 induction vars to keep overhead low
 
+
 _PARSE_ERR_MARKERS = (
     "inner syntax error",
     "failed to parse",
@@ -536,6 +576,7 @@ _PARSE_ERR_MARKERS = (
     "undefined type name",
     "type unification failed",  # statement-level type errors (e.g. ill-typed prop)
 )
+
 
 def _goal_parses(isabelle, session: str, goal: str) -> Tuple[bool, str]:
     """Check whether the GOAL STATEMENT itself is a well-formed Isabelle prop.
@@ -575,6 +616,7 @@ def _goal_parses(isabelle, session: str, goal: str) -> Tuple[bool, str]:
                 if marker in low:
                     return False, marker
     return True, "ok"
+
 
 def _try_direct_finishers(isabelle, session: str, goal: str, left_s, trace: bool) -> Optional[str]:
     """Try a sequence of deterministic one-line finishers on the whole goal.
@@ -619,6 +661,7 @@ def _try_direct_finishers(isabelle, session: str, goal: str, left_s, trace: bool
             return candidate
     return None
 
+
 def _syntax_fix_is_safe(original: str, fixed: str) -> bool:
     """
     Check that the LLM syntax fix only changed parentheses, dots, and spacing.
@@ -638,7 +681,7 @@ def _syntax_fix_is_safe(original: str, fixed: str) -> bool:
     def _extract_tokens(s: str) -> List[str]:
         """Extract logical tokens in order, ignoring parens/dots/spaces."""
         # Remove only parentheses, dots used as quantifier separators, and whitespace
-        s = re.sub(r'\(|\)', ' ', s)   # remove parens
+        s = re.sub(r'\(|\)', ' ', s)  # remove parens
         s = re.sub(r'(?<=\w)\.(?=\s)', ' ', s)  # remove dots after quantifier vars
         s = re.sub(r'\s+', ' ', s).strip()
         return s.split()
@@ -665,15 +708,16 @@ def _syntax_fix_is_safe(original: str, fixed: str) -> bool:
 
     return True
 
+
 # NOTE 1.1: Input Goal (Main entry point for program)
 def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *, mode: str = "auto",
-                 outline_k: Optional[int] = None, outline_temps: Optional[Iterable[float]] = None,
-                 legacy_single_outline: bool = False, repairs: bool = True,
-                 max_repairs_per_hole: int = 2, trace: bool = False, repair_trace: bool = False,
-                 priors_path: Optional[str] = None, context_hints: bool = False,
-                 lib_templates: bool = False, alpha: float = 1.0, beta: float = 0.5,
-                 gamma: float = 0.2, hintlex_path: Optional[str] = None,
-                 hintlex_top: int = 8, dummy_outline=None,) -> PlanAndFillResult:
+                  outline_k: Optional[int] = None, outline_temps: Optional[Iterable[float]] = None,
+                  legacy_single_outline: bool = False, repairs: bool = True,
+                  max_repairs_per_hole: int = 2, trace: bool = False, repair_trace: bool = False,
+                  priors_path: Optional[str] = None, context_hints: bool = False,
+                  lib_templates: bool = False, alpha: float = 1.0, beta: float = 0.5,
+                  gamma: float = 0.2, hintlex_path: Optional[str] = None,
+                  hintlex_top: int = 8, dummy_outline=None, ) -> PlanAndFillResult:
     """Plan and fill holes in Isar proofs.
 
     Notes:
@@ -770,7 +814,6 @@ def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *,
                     print(f"[Driver] Goal does not parse after regex fixes ({detail}); "
                           f"attempting LLM syntax fix...", flush=True)
                 try:
-                    from planner.skeleton import _generate_simple
                     fix_prompt = f"""You are an Isabelle/HOL expert. The following goal statement has a syntax error and cannot be parsed by Isabelle.
 
 ORIGINAL GOAL:
@@ -807,10 +850,11 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                             else:
                                 if trace:
                                     print(f"[Driver] LLM syntax fix did not parse either "
-                                        f"({detail2}); discarding, flagging as MALFORMED.", flush=True)
+                                          f"({detail2}); discarding, flagging as MALFORMED.", flush=True)
                         else:
                             if trace:
-                                print(f"[Driver] LLM syntax fix rejected — changed logical content; discarding.", flush=True)
+                                print(f"[Driver] LLM syntax fix rejected — changed logical content; discarding.",
+                                      flush=True)
                 except Exception as e:
                     if trace:
                         print(f"[Driver] LLM syntax fix attempt failed: {type(e).__name__}: {e}", flush=True)
@@ -819,7 +863,8 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 if trace:
                     print(f"[Driver] Goal statement does NOT parse in Isabelle ({detail}); "
                           f"flagging as MALFORMED (not a prover failure).", flush=True)
-                return PlanAndFillResult(False, f'lemma "{goal}"\n  (* MALFORMED: statement failed to parse *)\n', [], [], status="malformed")
+                return PlanAndFillResult(False, f'lemma "{goal}"\n  (* MALFORMED: statement failed to parse *)\n', [],
+                                         [], status="malformed")
             elif trace:
                 print("[Driver] Goal statement parses; proceeding.", flush=True)
 
@@ -848,7 +893,8 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     print("[Driver] Fastpath Closed by a direct finisher; skipping skeleton generation.")
                 return PlanAndFillResult(True, fp_proof, [], [])
             elif trace:
-                print("[Driver] Fastpath failed; no direct finisher closed the goal; proceeding to skeleton.", flush=True)
+                print("[Driver] Fastpath failed; no direct finisher closed the goal; proceeding to skeleton.",
+                      flush=True)
 
         # --- DUMMY OUTLINE SHORTCUT ---
         if dummy_outline:
@@ -857,8 +903,6 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     _dummy_text = f.read()
             else:
                 _dummy_text = dummy_outline
-            from planner.skeleton import _sanitize_outline, _sanitize_outline
-            import planner.skeleton as _skel_mod
             _dummy_cleaned = _sanitize_outline(_dummy_text, goal=goal, force_outline=False)
             _dummy_sk = Skeleton(text=_dummy_cleaned, holes=find_sorry_spans(_dummy_cleaned))
             _orig_propose = _skel_mod.propose_isar_skeletons
@@ -879,7 +923,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
 
         # Generate outline
         # NOTE: 1.4 Get best proof outline from LLM
-        elif legacy_single_outline: # Legacy only makes one skeleton
+        elif legacy_single_outline:  # Legacy only makes one skeleton
             if trace:
                 print("[Driver] Generating skeleton with legacy single-outline method...", flush=True)
             full = propose_isar_skeleton(
@@ -906,7 +950,8 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 context_hints=context_hints, lib_templates=lib_templates,
                 alpha=alpha, beta=beta, gamma=gamma, hintlex_path=hintlex_path,
                 hintlex_top=hintlex_top,
-                timeout_s=int(_skeleton_budget_s), # Fix 2: explicitly split time between skeleton generation and repair
+                timeout_s=int(_skeleton_budget_s),
+                # Fix 2: explicitly split time between skeleton generation and repair
                 trace=trace,
             )
             full = best.text
@@ -928,7 +973,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
         _repair_start = time.monotonic()
         _repair_end = min(
             _repair_start + _repair_reserve_s,  # guaranteed minimum
-            t0 + timeout                          # but never beyond total timeout
+            t0 + timeout  # but never beyond total timeout
         )
         left_s = lambda: max(0.0, _repair_end - time.monotonic())
 
@@ -988,7 +1033,9 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     else:
                         print("[Driver] Complete proof FAILED verification (no specific error text captured).")
                 except Exception as ex:
-                    print(f"[Driver] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}", flush=True)
+                    print(
+                        f"[Driver] Complete proof FAILED verification; error probe also failed: {type(ex).__name__}: {ex}",
+                        flush=True)
             else:
                 try:
                     _, verify_errs = _quick_state_and_errors(isa, session, full, timeout_s=err_timeout)
@@ -1022,10 +1069,11 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                             flush=True,
                         )
 
-            if repairs and left_s() > 3.0:    # Fix to match thresholds (changed from >6.0)
+            if repairs and left_s() > 3.0:  # Fix to match thresholds (changed from >6.0)
                 if trace:
                     print("[Driver] Engaging top-down repair on the failed complete proof...")
-                full, ok = _repair_failed_proof_topdown(isa, session, full, goal, model, left_s, max_repairs_per_hole, trace)
+                full, ok = _repair_failed_proof_topdown(isa, session, full, goal, model, left_s, max_repairs_per_hole,
+                                                        trace)
                 if ok:
                     if trace:
                         print("[Driver] Top-down repair produced a verified proof. Done.")
@@ -1043,11 +1091,12 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
             # Attempt to localise failure and fill with a sorry
             if trace:
                 print("[Driver] Localising failed complete proof into a sorry...")
-            full2, opened = _open_minimal_sorries(isa, session, full)
+            full2, opened = _open_minimal_sorries(isa, session, full, trace)
             full = full2 if opened else full
             if not opened:
                 if trace:
-                    print("[Driver] Could not localise the failure into a 'sorry'; returning unverified proof as FAILED.")
+                    print(
+                        "[Driver] Could not localise the failure into a 'sorry'; returning unverified proof as FAILED.")
                 return PlanAndFillResult(False, full, [], [0])
             elif trace:
                 print("[Driver] Localised the failing step into a 'sorry'; entering hole-fill loop.")
@@ -1059,13 +1108,13 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
 
         # Extract the goal text from the lemma line
         goal_text = _extract_goal_from_lemma_line(lemma_line)
-        fills: List[str] = [] # Replacement fragments that filled holes
-        failed: List[int] = [] # NOTE not really used?
-        repair_progress: dict[str, int] = {} # Track repair stage per hole
-        stage_tries: dict[Tuple[str, int], int] = {} # Tracks number of repair attempts per (hole, stage)
-        _skip_fill_logged_once: set[Tuple[str, int]] = set() # For logging when we skip fill attempts due to escalating repairs
-        focused_hole_key: Optional[str] = None # Focus on a specific hole across iterations
-
+        fills: List[str] = []  # Replacement fragments that filled holes
+        failed: List[int] = []  # NOTE not really used?
+        repair_progress: dict[str, int] = {}  # Track repair stage per hole
+        stage_tries: dict[Tuple[str, int], int] = {}  # Tracks number of repair attempts per (hole, stage)
+        _skip_fill_logged_once: set[
+            Tuple[str, int]] = set()  # For logging when we skip fill attempts due to escalating repairs
+        focused_hole_key: Optional[str] = None  # Focus on a specific hole across iterations
 
         # Before starting modifications
         current_best_score = _quick_sketch_score(isa, session, full, timeout_s=left_s(), trace=trace)
@@ -1074,12 +1123,50 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
 
         # Fill and repair loop
         # NOTE: 2.1 Trigger Fill
-        while "sorry" in full and left_s() > 0:
+
+        # Track whether our complete-proof state has been verified
+        proof_verified = False
+
+        while (not proof_verified or "sorry" in full) and left_s() > 0:
+
+            # DYNAMIC CLEAN SWEEP: Convert the earliest unverified error to a 'sorry'
+            try:
+                # Check if the current full text compiles perfectly. If it doesn't,
+                # open the earliest failing line as a fresh 'sorry' placeholder.
+                full_cleaned, opened = _open_minimal_sorries(isa, session, full, trace)
+                if opened:
+                    if trace:
+                        print("[Driver] Detected validation error in layout; opened broken line as a 'sorry'.",
+                              flush=True)
+                    full = full_cleaned
+                    current_best_score = _quick_sketch_score(isa, session, full, timeout_s=left_s(), trace=trace)
+                    # Clear focused hole identity because the positions/fingerprints just shifted
+                    focused_hole_key = None
+            except Exception as ex:
+                if trace:
+                    print(f"[Driver] Dynamic sweep warning: {ex}", flush=True)
 
             # Get sorry holes
             spans = find_sorry_spans(full)
             if not spans:
-                break
+                if _verify_full_proof(isa, session, full):
+                    proof_verified = True
+                    break
+                else:
+                    if trace:
+                        print(
+                            "[Driver] Proof has no sorries but fails full verification. Escalating to top-down repair...",
+                            flush=True)
+                    full, ok = _repair_failed_proof_topdown(isa, session, full, goal_text, model, left_s,
+                                                            max_repairs_per_hole, trace)
+                    if ok:
+                        proof_verified = True
+                        break
+                    # Force-open the earliest failing spot into a sorry so the loop can keep spinning
+                    full, opened = _open_minimal_sorries(isa, session, full, trace)
+                    if not opened:
+                        break
+                    continue
 
             # Choose focused hole if possible, otherwise chosoe first hole
             # NOTE not sure how stable hole idenity, changes to sournding holes can stuff it?
@@ -1104,14 +1191,15 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 if span is None:
                     # previous hole has been closed
                     if trace:
-                        print(f"[Driver] Focused hole @{focused_hole_key} was closed. Moving to first hole.", flush=True)
+                        print(f"[Driver] Focused hole @{focused_hole_key} was closed. Moving to first hole.",
+                              flush=True)
                     focused_hole_key = None
 
             if span is None:
                 span = spans[0]
-            hole_key = _hole_fingerprint(full, span) # Get hole key for tracking repair progress
+            hole_key = _hole_fingerprint(full, span)  # Get hole key for tracking repair progress
             per_hole_budget = int(max(5, left_s() / max(1, len(spans))))  # How much time to spend on hole
-            start_stage = repair_progress.get(hole_key, 0) # What repair stage the current hole is in
+            start_stage = repair_progress.get(hole_key, 0)  # What repair stage the current hole is in
 
             # Always try fill first unless we're in escalated repair stages
             # NOTE: 3.1 Stage 1 Local Repair
@@ -1131,7 +1219,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                         print(f"[Driver] _fill_one_hole crashed: {type(ex).__name__}: {ex}", flush=True)
                     full2, ok, script = full, False, "fill-exception"
 
-                 # Check sketch score of the modified candidate
+                # Check sketch score of the modified candidate
                 new_score = _quick_sketch_score(isa, session, full2, timeout_s=left_s(), trace=trace)
                 if trace:
                     print(f"[Driver] Fill attempt result sketch score: {new_score}", flush=True)
@@ -1143,7 +1231,9 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     fills.append(script)
 
                     if trace:
-                        print(f"[Driver] Fill improved score from {current_best_score} to {new_score}! Testing full verification...", flush=True)
+                        print(
+                            f"[Driver] Fill improved score from {current_best_score} to {new_score}! Testing full verification...",
+                            flush=True)
 
                     current_best_score = new_score
 
@@ -1158,18 +1248,19 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                             # The proof has no sorries, but doesn't verify: force escalate to top-down structure repair instead of letting the while loop die.
                             if trace:
                                 print("[Driver] No sorries left but proof unverified. Escalating to structure repair.")
-                            full, ok = _repair_failed_proof_topdown(isa, session, full, goal_text, model, left_s, max_repairs_per_hole, trace)
+                            full, ok = _repair_failed_proof_topdown(isa, session, full, goal_text, model, left_s,
+                                                                    max_repairs_per_hole, trace)
                             if ok:
                                 return PlanAndFillResult(True, full, fills, failed)
-                            
+
                             # If that fails, break or open a minimal sorry back up to let CEGIS fix the structural line
-                            full, opened = _open_minimal_sorries(isa, session, full)
+                            full, opened = _open_minimal_sorries(isa, session, full, trace)
                             if not opened:
                                 break
-                    
+
                     # Track progress and continue to the next iteration safely
                     repair_progress[hole_key] = 0  # Keep it at stage 0 since it succeeded!
-                    focused_hole_key = None        # Clear focus to check remaining holes
+                    focused_hole_key = None  # Clear focus to check remaining holes
 
                     continue
 
@@ -1181,7 +1272,8 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     start_stage = 1
             else:
                 if trace and (hole_key, start_stage) not in _skip_fill_logged_once:
-                    print(f"[Driver] Skipping fill for hole @{hole_key}; running repairs at stage {start_stage}", flush=True)
+                    print(f"[Driver] Skipping fill for hole @{hole_key}; running repairs at stage {start_stage}",
+                          flush=True)
                     _skip_fill_logged_once.add((hole_key, start_stage))
 
             # Try CEGIS repairs
@@ -1201,7 +1293,9 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
 
                 try:
                     if trace:
-                        print(f"[Driver] Attempting CEGIS repairs on hole @{hole_key} with effective goal:\n{eff_goal}\n", flush=True)
+                        print(
+                            f"[Driver] Attempting CEGIS repairs on hole @{hole_key} with effective goal:\n{eff_goal}\n",
+                            flush=True)
                     patched, applied, _ = try_cegis_repairs(
                         full_text=full, hole_span=span, goal_text=eff_goal, model=model,
                         isabelle=isa, session=session,
@@ -1225,7 +1319,9 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 # --- SCORE CHECK (CEGIS Stages 1, 2, 3) ---
                 if patched != full and new_score < current_best_score:
                     if trace:
-                        print(f"[Driver] CEGIS Stage {current_stage} improved score from {current_best_score} to {new_score}! Testing full verification...", flush=True)
+                        print(
+                            f"[Driver] CEGIS Stage {current_stage} improved score from {current_best_score} to {new_score}! Testing full verification...",
+                            flush=True)
 
                     full = patched
                     current_best_score = new_score
@@ -1260,7 +1356,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 force_regen = bool(false_lines)
                 if force_regen and trace:
                     print(f"[Driver] FALSE subgoal proven at line(s) {sorted(false_lines)}; "
-                        f"skipping leaf-repair and regenerating whole proof.", flush=True)
+                          f"skipping leaf-repair and regenerating whole proof.", flush=True)
 
                 should_escalate = force_regen
                 if start_stage == 1 and stage_tries[key] >= STAGE1_CAP:
@@ -1298,7 +1394,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                         # If regeneration improved sketch score or completely verified
                         regen_score = _quick_sketch_score(isa, session, new_full, timeout_s=left_s(), trace=trace)
                         if trace:
-                            print(f"[Driver] Repair attempt regeneration score: {new_score}", flush=True)
+                            print(f"[Driver] Repair attempt regeneration score: {regen_score}", flush=True)
                         if (ok_re or regen_score < current_best_score) and new_full != full:
                             full = new_full
                             current_best_score = regen_score
@@ -1314,7 +1410,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                         temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
                         k = int(outline_k) if outline_k is not None else 3
                         best, _ = propose_isar_skeleton_diverse_best(
-                            goal_text, isabelle=isa, session_id=session, model=model, temps=temps, k=k,
+                            goal, isabelle=isa, session_id=session, model=model, temps=temps, k=k,
                             force_outline=True, priors_path=priors_path, context_hints=context_hints,
                             lib_templates=lib_templates, alpha=alpha, beta=beta, gamma=gamma,
                             hintlex_path=hintlex_path, hintlex_top=hintlex_top, trace=trace,
@@ -1333,12 +1429,16 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 if patched != full:
                     if trace:
                         cap = STAGE1_CAP if start_stage == 1 else STAGE2_CAP
-                        print(f"[repair] Stage {start_stage} changed but unverified/unoptimized (attempt {stage_tries[key]}/{cap}). Opening sorries...", flush=True)
+                        print(
+                            f"[repair] Stage {start_stage} changed but unverified/unoptimized (attempt {stage_tries[key]}/{cap}). Opening sorries...",
+                            flush=True)
 
                     # Attempt opening minimal sorries on the unverified variant candidate context to see if it unblocks locally
-                    full2, opened = _open_minimal_sorries(isa, session, patched)
+                    full2, opened = _open_minimal_sorries(isa, session, patched, trace)
                     if opened:
                         full = full2
+                        # Escalate the stage tracker before continuing to avoid loop stall
+                        repair_progress[hole_key] = min(start_stage + 1, 2)
                         focused_hole_key = None
                         continue
 
