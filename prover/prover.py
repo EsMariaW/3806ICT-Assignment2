@@ -151,7 +151,7 @@ def prove_goal(isabelle, session_id: str, goal: str, model_name_or_ensemble: str
     if not model_list:
         model_list = [os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")]
     display_model = ",".join(model_list)
-    logger = RunLogger(goal, display_model, timeout_s=budget)
+    logger = RunLogger(goal, display_model, timeout_s=int(budget or 0))
 
     # ----- optional: build a lightweight context window + retrieval index -----
     ctx_win: Optional[ContextWindow] = None
