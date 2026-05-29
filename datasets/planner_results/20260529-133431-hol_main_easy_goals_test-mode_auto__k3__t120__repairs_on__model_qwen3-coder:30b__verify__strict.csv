@@ -1,0 +1,101 @@
+goal,success,elapsed_s,mode,model,outline_chars,fills,failed_holes,had_sorry,verified_ok
+surj f ⟷ (∀y. ∃x. f x = y),False,92.2727,auto,qwen3-coder:30b,196,0,1,False,False
+(f ∘ (g ∘ h)) = ((f ∘ g) ∘ h),True,9.6945,auto,qwen3-coder:30b,48,0,0,False,True
+(a::int) + 0 = a,True,7.4049,auto,qwen3-coder:30b,35,0,0,False,True
+(∀x. P x ⟶ Q x) ⟶ ((∃x. P x) ⟶ (∃x. Q x)),False,163.1233,auto,qwen3-coder:30b,328,0,1,False,False
+map fst (zip xs ys) = take (min (length xs) (length ys)) xs,False,106.0374,auto,qwen3-coder:30b,170,0,1,False,False
+length (replicate n x) = n,True,8.3934,auto,qwen3-coder:30b,45,0,0,False,True
+(A ⟶ (B ⟶ C)) ⟶ (A ∧ B ⟶ C),True,7.7243,auto,qwen3-coder:30b,46,0,0,False,True
+min (m::nat) n + k = min (m + k) (n + k),True,7.3849,auto,qwen3-coder:30b,59,0,0,False,True
+(A - B) ∪ (A ∩ B) = A,True,9.4758,auto,qwen3-coder:30b,40,0,0,False,True
+(min (m::nat) n) + (max m n) = m + n,True,7.5585,auto,qwen3-coder:30b,55,0,0,False,True
+(0::nat) + m = m,True,7.4118,auto,qwen3-coder:30b,35,0,0,False,True
+(if A then B else B) = B,True,7.4289,auto,qwen3-coder:30b,43,0,0,False,True
+take n (take m xs) = take (min n m) xs,True,7.6253,auto,qwen3-coder:30b,57,0,0,False,True
+drop n (drop m xs) = drop (n + m) xs,True,7.4347,auto,qwen3-coder:30b,55,0,0,False,True
+(m::nat) + 0 = m,True,7.5104,auto,qwen3-coder:30b,35,0,0,False,True
+(f(x := f x)) = f,True,8.1070,auto,qwen3-coder:30b,36,0,0,False,True
+map id xs = xs,True,7.5249,auto,qwen3-coder:30b,33,0,0,False,True
+0 + (a::int) = a,True,7.4591,auto,qwen3-coder:30b,35,0,0,False,True
+min (m::nat) n ≤ m,True,8.0375,auto,qwen3-coder:30b,37,0,0,False,True
+Range (r O s) ⊆ Range s,True,9.5717,auto,qwen3-coder:30b,42,0,0,False,True
+Id O r = r,True,7.4344,auto,qwen3-coder:30b,29,0,0,False,True
+f ` (A ∩ B) ⊆ (f ` A) ∩ (f ` B),True,9.5213,auto,qwen3-coder:30b,50,0,0,False,True
+converse (r O s) = (converse s) O (converse r),True,9.7272,auto,qwen3-coder:30b,65,0,0,False,True
+"case_prod f (x,y) = f x y",True,7.5561,auto,qwen3-coder:30b,44,0,0,False,True
+length ([m..<m+n]) = n,True,7.4585,auto,qwen3-coder:30b,41,0,0,False,True
+map (g ∘ f) xs = map g (map f xs),True,7.5118,auto,qwen3-coder:30b,52,0,0,False,True
+(m::nat) ≠ 0 ⟷ (∃k. m = Suc k),True,11.7127,auto,qwen3-coder:30b,60,0,0,False,True
+x ∈ (A ∩ B) ⟷ (x ∈ A ∧ x ∈ B),True,7.4034,auto,qwen3-coder:30b,48,0,0,False,True
+-( (a::int) - b ) = b - a,True,7.4400,auto,qwen3-coder:30b,44,0,0,False,True
+Domain (Id_on A) = A,True,7.6461,auto,qwen3-coder:30b,39,0,0,False,True
+(∃x. P x ∧ Q x) ⟶ ((∃x. P x) ∧ (∃x. Q x)),True,9.5161,auto,qwen3-coder:30b,64,0,0,False,True
+x ≠ z ⟶ (f(x := y)) z = f z,True,7.5575,auto,qwen3-coder:30b,46,0,0,False,True
+rev (map f xs) = map f (rev xs),True,11.6317,auto,qwen3-coder:30b,62,0,0,False,True
+"zip (map f xs) (map g ys) = map (λp. (f (fst p), g (snd p))) (zip xs ys)",False,108.4827,auto,qwen3-coder:30b,211,0,1,False,False
+(m::nat) + Suc n = Suc (m + n),True,7.5994,auto,qwen3-coder:30b,49,0,0,False,True
+inj_on f A ⟷ (∀x∈A. ∀y∈A. f x = f y ⟶ x = y),False,142.2473,auto,qwen3-coder:30b,254,0,1,False,False
+map_sum id id s = s,True,12.3243,auto,qwen3-coder:30b,49,0,0,False,True
+filter P (rev xs) = rev (filter P xs),True,11.7539,auto,qwen3-coder:30b,68,0,0,False,True
+((a::int) + b) - c = a + (b - c),True,8.1096,auto,qwen3-coder:30b,51,0,0,False,True
+A ⊆ B ⟷ (A - B = {}),True,7.5121,auto,qwen3-coder:30b,39,0,0,False,True
+Domain (r O s) ⊆ Domain r,True,10.2728,auto,qwen3-coder:30b,44,0,0,False,True
+(g ∘ f) ` A = g ` (f ` A),True,9.7257,auto,qwen3-coder:30b,44,0,0,False,True
+(f ∘ id) = f,True,7.4357,auto,qwen3-coder:30b,31,0,0,False,True
+(id ∘ f) = f,True,7.6318,auto,qwen3-coder:30b,31,0,0,False,True
+{x∈A. P x ∨ Q x} = {x∈A. P x} ∪ {x∈A. Q x},True,9.5791,auto,qwen3-coder:30b,61,0,0,False,True
+map snd (zip xs ys) = take (min (length xs) (length ys)) ys,True,94.0693,auto,qwen3-coder:30b,231,1,0,False,True
+distinct xs ⟷ length xs = length (remdups xs),True,45.5755,auto,qwen3-coder:30b,205,1,0,False,True
+set (filter P xs) = {x ∈ set xs. P x},True,7.4310,auto,qwen3-coder:30b,56,0,0,False,True
+(∀x. P x) ⟷ (¬ (∃x. ¬ P x)),False,7.3846,auto,qwen3-coder:30b,86,0,0,False,False
+Range (Id_on A) = A,True,7.4972,auto,qwen3-coder:30b,38,0,0,False,True
+case_sum f g (Inr y) = g y,True,7.5173,auto,qwen3-coder:30b,45,0,0,False,True
+(f(x := y)) x = y,True,8.1570,auto,qwen3-coder:30b,36,0,0,False,True
+(¬ A ∧ ¬ B) ⟷ ¬(A ∨ B),True,7.4857,auto,qwen3-coder:30b,43,0,0,False,True
+set (replicate n x) ⊆ {x},True,10.1887,auto,qwen3-coder:30b,44,0,0,False,True
+(A - B) ∩ B = {},True,9.4558,auto,qwen3-coder:30b,35,0,0,False,True
+(λx. x) = id,True,9.4837,auto,qwen3-coder:30b,31,0,0,False,True
+drop n (xs @ ys) = (drop n xs) @ (drop (n - length xs) ys),True,7.4450,auto,qwen3-coder:30b,77,0,0,False,True
+(Suc m ≤ Suc n) ⟷ (m ≤ n),True,7.5059,auto,qwen3-coder:30b,44,0,0,False,True
+f ` (A ∪ B) = (f ` A) ∪ (f ` B),True,10.2849,auto,qwen3-coder:30b,50,0,0,False,True
+remdups (remdups xs) = remdups xs,True,7.3350,auto,qwen3-coder:30b,52,0,0,False,True
+(A × (B ∩ C)) = (A × B) ∩ (A × C),True,9.8090,auto,qwen3-coder:30b,52,0,0,False,True
+(A ∧ (B ∨ C)) ⟶ ((A ∧ B) ∨ (A ∧ C)),True,7.4146,auto,qwen3-coder:30b,54,0,0,False,True
+((A ⟶ C) ∧ (B ⟶ C)) ⟶ (A ∨ B ⟶ C),True,7.4468,auto,qwen3-coder:30b,52,0,0,False,True
+set (rev xs) = set xs,True,7.3798,auto,qwen3-coder:30b,40,0,0,False,True
+(m::nat) ≤ n ⟷ (∃k. m + k = n),False,127.4584,auto,qwen3-coder:30b,407,0,1,False,False
+{x∈A. True} = A,True,7.3745,auto,qwen3-coder:30b,34,0,0,False,True
+sum_list (map (λ_. (k::nat)) xs) = k * length xs,True,11.8002,auto,qwen3-coder:30b,79,0,0,False,True
+inj f ⟷ (∀x y. f x = f y ⟶ x = y),True,69.7190,auto,qwen3-coder:30b,212,0,0,False,True
+max (a::int) b + c = max (a + c) (b + c),True,7.5463,auto,qwen3-coder:30b,59,0,0,False,True
+{x∈A. False} = {},True,7.5017,auto,qwen3-coder:30b,36,0,0,False,True
+(A ∧ (B ⟶ C)) ⟶ ((A ∧ B) ⟶ C),True,7.4973,auto,qwen3-coder:30b,48,0,0,False,True
+"snd (x,y) = y",True,7.5930,auto,qwen3-coder:30b,32,0,0,False,True
+take n xs = take n (xs @ ys) ⟷ n ≤ length xs,False,113.5806,auto,qwen3-coder:30b,146,0,0,True,True
+(a::int) + (b + c) = (a + b) + c,True,7.5684,auto,qwen3-coder:30b,51,0,0,False,True
+concat (map (λx. [x]) xs) = xs,True,7.4884,auto,qwen3-coder:30b,49,0,0,False,True
+min (a::int) b + c = min (a + c) (b + c),True,7.6728,auto,qwen3-coder:30b,59,0,0,False,True
+((A ∩ B) × C) = (A × C) ∩ (B × C),True,9.7324,auto,qwen3-coder:30b,52,0,0,False,True
+max (m::nat) n + k = max (m + k) (n + k),True,7.5322,auto,qwen3-coder:30b,59,0,0,False,True
+abs ((a::int) - c) ≤ abs (a - b) + abs (b - c),True,7.4106,auto,qwen3-coder:30b,65,0,0,False,True
+m ≤ max (m::nat) n,True,7.4295,auto,qwen3-coder:30b,37,0,0,False,True
+length (zip xs ys) = min (length xs) (length ys),True,7.4406,auto,qwen3-coder:30b,67,0,0,False,True
+(r O s) O t = r O (s O t),True,9.4889,auto,qwen3-coder:30b,44,0,0,False,True
+x ∈ (A ∪ B) ⟷ (x ∈ A ∨ x ∈ B),True,7.4172,auto,qwen3-coder:30b,48,0,0,False,True
+abs ((a::int) + b) = abs (b + a),True,7.5699,auto,qwen3-coder:30b,51,0,0,False,True
+map_option id o = o,False,7.5623,auto,qwen3-coder:30b,73,0,0,False,False
+(A ⟶ B) ⟶ (¬B ⟶ ¬A),True,9.6588,auto,qwen3-coder:30b,42,0,0,False,True
+map f (concat xss) = concat (map (map f) xss),True,16.5416,auto,qwen3-coder:30b,77,0,0,False,True
+(m::nat) * (n + k) = m*n + m*k,True,11.6045,auto,qwen3-coder:30b,60,0,0,False,True
+(f = g) ⟷ (∀x. f x = g x),True,9.6040,auto,qwen3-coder:30b,44,0,0,False,True
+(m::nat) ≤ n ⟶ m ≤ n + k,True,7.4402,auto,qwen3-coder:30b,43,0,0,False,True
+((a::int) - b) + c = a + (c - b),True,8.1292,auto,qwen3-coder:30b,51,0,0,False,True
+Pow A ⊆ Pow B ⟷ A ⊆ B,True,9.5409,auto,qwen3-coder:30b,40,0,0,False,True
+{x∈A. P x ∧ Q x} = {x∈A. P x} ∩ {x∈A. Q x},True,9.6011,auto,qwen3-coder:30b,61,0,0,False,True
+converse Id = Id,True,7.4208,auto,qwen3-coder:30b,35,0,0,False,True
+r O Id = r,True,7.5008,auto,qwen3-coder:30b,29,0,0,False,True
+Id_on A ⊆ Id,True,9.6081,auto,qwen3-coder:30b,31,0,0,False,True
+"fst (x,y) = x",True,7.4020,auto,qwen3-coder:30b,32,0,0,False,True
+(A ⟶ B) ⟷ (¬A ∨ B),True,8.0939,auto,qwen3-coder:30b,39,0,0,False,True
+Pow A ∩ Pow B = Pow (A ∩ B),True,7.5518,auto,qwen3-coder:30b,46,0,0,False,True
+map Suc ([m..<m+n]) = [Suc m ..< Suc (m+n)],True,15.9715,auto,qwen3-coder:30b,73,0,0,False,True

@@ -1,0 +1,19 @@
+goal,success,elapsed_s,mode,model,outline_chars,fills,failed_holes,had_sorry,verified_ok
+x ∈ set xs ⟹ x ∈ set (xs @ ys),True,7.2202,auto,qwen3-coder:30b,49,0,0,False,True
+set (xs @ ys) = set xs ∪ set ys,True,7.4641,auto,qwen3-coder:30b,50,0,0,False,True
+map id xs = xs,True,8.0687,auto,qwen3-coder:30b,33,0,0,False,True
+take (length xs) (xs @ ys) = xs,True,7.3386,auto,qwen3-coder:30b,50,0,0,False,True
+map f (xs @ ys) = map f xs @ map f ys,True,7.3632,auto,qwen3-coder:30b,56,0,0,False,True
+length (xs @ ys) = length xs + length ys,True,7.4316,auto,qwen3-coder:30b,59,0,0,False,True
+filter p (xs @ ys) = filter p xs @ filter p ys,True,7.4116,auto,qwen3-coder:30b,65,0,0,False,True
+map f (rev xs) = rev (map f xs),True,12.2842,auto,qwen3-coder:30b,62,0,0,False,True
+drop (length xs) (xs @ ys) = ys,True,7.4158,auto,qwen3-coder:30b,50,0,0,False,True
+distinct xs ⟹ distinct (rev xs),True,7.5056,auto,qwen3-coder:30b,50,0,0,False,True
+xs @ [] = xs,True,7.3284,auto,qwen3-coder:30b,31,0,0,False,True
+take n xs @ drop n xs = xs,True,7.5599,auto,qwen3-coder:30b,45,0,0,False,True
+[] @ xs = xs,True,8.3150,auto,qwen3-coder:30b,31,0,0,False,True
+x ∈ set ys ⟹ x ∈ set (xs @ ys),True,7.4207,auto,qwen3-coder:30b,49,0,0,False,True
+map f (filter p xs) = filter (λx. p x) (map f xs),False,88.3691,auto,qwen3-coder:30b,174,0,1,False,False
+length (rev xs) = length xs,True,7.3992,auto,qwen3-coder:30b,46,0,0,False,True
+rev (rev xs) = xs,True,8.0843,auto,qwen3-coder:30b,36,0,0,False,True
+rev (xs @ ys) = rev ys @ rev xs,True,7.4639,auto,qwen3-coder:30b,50,0,0,False,True
