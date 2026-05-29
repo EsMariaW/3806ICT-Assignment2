@@ -187,6 +187,19 @@ def prove_goal(isabelle, session_id: str, goal: str, model_name_or_ensemble: str
     start_t = time.monotonic()
     def time_left_s() -> float: return budget - (time.monotonic() - start_t)
 
+    # OS-level preemptive timeout (Unix/Mac only -- signal.alarm not available on Windows).
+    # On Linux/Mac this fires at the OS level regardless of what Python is doing,
+    # preventing LLM calls or Isabelle checks from overrunning the budget.
+    # On Windows the cooperative time_left_s() checks remain the only enforcement.
+    import platform as _platform
+    import signal as _signal
+    _use_sigalarm = _platform.system() != "Windows"
+    if _use_sigalarm:
+        def _sigalarm_handler(signum, frame):
+            raise TimeoutError(f"prove_goal: wall-clock budget of {budget}s exceeded")
+        _signal.signal(_signal.SIGALRM, _sigalarm_handler)
+        _signal.alarm(int(budget) + 2)  # +2s grace so cooperative check fires first
+
     seed_steps = [f'lemma "{goal}"']
     # Seed the first beam with an optional initial state hint (used by planner after print_state)
     seed_hint = (initial_state_hint or "").strip()
@@ -208,6 +221,8 @@ def prove_goal(isabelle, session_id: str, goal: str, model_name_or_ensemble: str
                 name = slugify_goal(goal) + ".thy.partial"
                 from .isabelle_api import build_theory as _bt
                 write_theory_file(os.path.join(save_dir, name), _bt(best[1] + ["sorry"], False, None))
+
+            if _use_sigalarm: _signal.alarm(0)
             return {"goal": goal, "success": False, "steps": best[1], "depth": depth,
                     "use_calls": use_calls_count(), "elapsed_s": logger.elapsed_s, "model": display_model, "timeout": True}
 
@@ -400,6 +415,8 @@ def prove_goal(isabelle, session_id: str, goal: str, model_name_or_ensemble: str
                         from .isabelle_api import build_theory as _bt
                         write_theory_file(os.path.join(save_dir, name), _bt(final, False, None))
                     if trace: print(color(use_color, "green", "✔ PROVED"))
+
+                    if _use_sigalarm: _signal.alarm(0)
                     return {"goal": goal, "success": True, "steps": final, "depth": depth_reached,
                             "use_calls": use_calls_count(), "elapsed_s": logger.elapsed_s, "model": display_model}
         
@@ -537,6 +554,8 @@ def prove_goal(isabelle, session_id: str, goal: str, model_name_or_ensemble: str
                 name = slugify_goal(goal) + ".thy.partial"
                 from .isabelle_api import build_theory as _bt
                 write_theory_file(os.path.join(save_dir, name), _bt(best[1] + ["sorry"], False, None))
+
+            if _use_sigalarm: _signal.alarm(0)
             return {"goal": goal, "success": False, "steps": best[1], "depth": depth_reached,
                     "use_calls": use_calls_count(), "elapsed_s": logger.elapsed_s, "model": display_model}
 
@@ -558,5 +577,7 @@ def prove_goal(isabelle, session_id: str, goal: str, model_name_or_ensemble: str
         name = slugify_goal(goal) + ".thy.partial"
         from .isabelle_api import build_theory as _bt
         write_theory_file(os.path.join(save_dir, name), _bt(best[1] + ["sorry"], False, None))
+
+    if _use_sigalarm: _signal.alarm(0)
     return {"goal": goal, "success": False, "steps": best[1], "depth": MAX_DEPTH,
             "use_calls": use_calls_count(), "elapsed_s": logger.elapsed_s, "model": display_model}
