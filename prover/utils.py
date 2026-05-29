@@ -124,7 +124,7 @@ class RunLogger:
         self.depth_reached: int = 0
         self.use_calls: int = 0
         self._last_known_subgoals: Optional[int] = None  # best-effort cache
-        self.timeout_s: int = int(timeout_s or 0)
+        self.timeout_s: float = float(timeout_s or 0.0)
 
     def log_attempt(
         self,
