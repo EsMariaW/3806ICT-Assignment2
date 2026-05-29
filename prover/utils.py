@@ -110,9 +110,10 @@ class RunLogger:
     __slots__ = (
         "run_id", "goal", "model", "start_ts", "elapsed_s", "success",
         "final_steps", "depth_reached", "use_calls", "_last_known_subgoals",
+        "timeout_s",
     )
 
-    def __init__(self, goal: str, model_name: str):
+    def __init__(self, goal: str, model_name: str, timeout_s: int = 0):
         self.run_id = str(uuid.uuid4())
         self.goal = goal
         self.model = model_name
@@ -123,6 +124,7 @@ class RunLogger:
         self.depth_reached: int = 0
         self.use_calls: int = 0
         self._last_known_subgoals: Optional[int] = None  # best-effort cache
+        self.timeout_s: int = int(timeout_s or 0)
 
     def log_attempt(
         self,
@@ -209,4 +211,6 @@ class RunLogger:
             "num_candidates": NUM_CANDIDATES,
             "temp": TEMP,
             "top_p": TOP_P,
+            "timeout_s": self.timeout_s,
+            "timed_out": (self.timeout_s > 0 and self.elapsed_s >= self.timeout_s),
         })

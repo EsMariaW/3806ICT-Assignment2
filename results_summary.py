@@ -229,6 +229,17 @@ def compute_stats(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
     # Isabelle call counts
     isa_calls = [r.get("use_theories_calls", 0) for r in runs]
 
+    # Timeout detection — use logged timed_out field if available,
+    # otherwise fall back to elapsed_s >= timeout_s comparison
+    timed_out_runs = []
+    for r in runs:
+        if "timed_out" in r:
+            if r["timed_out"]:
+                timed_out_runs.append(r)
+        elif "timeout_s" in r and r.get("timeout_s", 0) > 0:
+            if r.get("elapsed_s", 0) >= r["timeout_s"]:
+                timed_out_runs.append(r)
+
     return {
         "total":           total,
         "n_success":       len(successes),
@@ -249,6 +260,9 @@ def compute_stats(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
         "last_run":        last_run,
         "total_isa_calls": sum(isa_calls),
         "avg_isa_calls":   _mean(isa_calls),
+        "avg_isa_calls_per_problem": _mean(isa_calls),
+        "n_timed_out":     len(timed_out_runs),
+        "timeout_rate":    _pct(len(timed_out_runs), total),
     }
 
 
@@ -309,7 +323,9 @@ def print_stats_section(stats: Dict[str, Any], title: str = "RESULTS SUMMARY") -
     print(_row("Avg search depth:",   f"{stats['avg_depth']:.1f}"))
     print(_row("Max depth reached:",  stats["max_depth_seen"]))
     print(_row("Total Isabelle calls:", stats["total_isa_calls"]))
-    print(_row("Avg Isabelle calls:", f"{stats['avg_isa_calls']:.1f}"))
+    print(_row("Avg Isabelle calls per problem:", f"{stats['avg_isa_calls_per_problem']:.1f}"))
+    print()
+    print(_row("Problems that hit timeout:", f"{stats['n_timed_out']}  ({stats['timeout_rate']})"))
     print()
     total_time_s = stats.get("mean_time_all", 0) * stats.get("total", 0)
     h = int(total_time_s // 3600)
@@ -317,6 +333,9 @@ def print_stats_section(stats: Dict[str, Any], title: str = "RESULTS SUMMARY") -
     s = int(total_time_s % 60)
     total_time_str = f"{h}h {m}m {s}s" if h > 0 else f"{m}m {s}s"
     print(_row("Total time (all runs):", total_time_str))
+    print()
+    print(f"  NOTE: Results are hardware-dependent. Timeout is a wall-clock budget.")
+    print(f"  Faster hardware completes more search iterations within the same timeout.")
     print()
 
 
