@@ -11,6 +11,7 @@ import requests
 from typing import Callable
 from planner.repair_inputs import _find_first_hole, _hole_line_bounds, _APPLY_OR_BY, _snippet_window, _clamp_line_index, _quick_state_and_errors, _extract_error_lines, _run_theory_with_timeout, _print_state_before_hole, _nearest_header, _recent_steps, _normalize_error_texts, _facts_from_state, get_counterexample_hints_for_repair, _earliest_failure_anchor, _run_nitpick_at_line
 from planner.prompts import _LOCAL_SYSTEM, _LOCAL_USER, _BLOCK_SYSTEM, _BLOCK_USER
+from planner.goals import _verify_full_proof
 from prover.config import MODEL as DEFAULT_MODEL, OLLAMA_HOST, TIMEOUT_S as OLLAMA_TIMEOUT_S, OLLAMA_NUM_PREDICT, TEMP as OLLAMA_TEMP, TOP_P as OLLAMA_TOP_P
 from prover.isabelle_api import build_theory, run_theory, last_print_state_block, finished_ok
 
@@ -60,7 +61,7 @@ _OUTLINE_BARE         = re.compile(r"(?m)^\s*(?:induction|cases|coinduction)\b.*
 
 def _log(prefix: str, label: str, content: str, trace: bool = True) -> None:
     if trace and content:
-        print(f"[{prefix}] {label} (len={len(content)}):\n{content if content.strip() else '  (empty)'}")
+        print(f"[{prefix}] {label} (len={len(content)}):\n{content if content.strip() else '  (empty)'}", flush=True)
 
 def _sanitize_llm_block(text: str) -> str:
     if not text:
@@ -180,6 +181,7 @@ def _generate_simple(prompt: str, model: Optional[str] = None, *, timeout_s: Opt
         if elapsed < _GEMINI_INTER_REQUEST_DELAY_S:
             time.sleep(_GEMINI_INTER_REQUEST_DELAY_S - elapsed)
         raw = _gemini_generate(prompt, m[7:], timeout)
+        print(f"raw: {raw}")
         # #Fix: Record the time of this call so the next call can compute the gap.
         _gemini_last_call_time = time.monotonic()
     elif m.startswith("ollama:"):
@@ -219,11 +221,6 @@ def _hf_generate(prompt: str, model_id: str, timeout_s: int) -> str:
     return _sanitize_llm_block(result.strip())
 
 def _gemini_generate(prompt: str, model_id: str, timeout_s: int) -> str:
-    # #Fix: This function now makes exactly one HTTP request (no silent retry loop,
-    # #Fix: no fallback model). If the call fails the exception propagates to
-    # #Fix: _generate_simple / _propose_block_repair, which already catch Exception
-    # #Fix: and continue to the next repair round — so we get one clean attempt
-    # #Fix: per round rather than a hidden fan-out of retries per round.
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
@@ -231,28 +228,38 @@ def _gemini_generate(prompt: str, model_id: str, timeout_s: int) -> str:
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model_id}:generateContent?key={api_key}"
     )
-    # Fix: don't use OLLAMA_NUM_PREDICT for Gemini — it's far too small
+    
     gemini_max_tokens = max(OLLAMA_NUM_PREDICT, 4096)
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": gemini_max_tokens},
     }
+    
     resp = _SESSION.post(url, json=payload, timeout=timeout_s)
-    # #Fix: Raise immediately on 429 / other HTTP errors so the caller's
-    # #Fix: except-block can skip the round cleanly rather than receiving
-    # #Fix: partial/empty JSON that confuses the block parser.
     resp.raise_for_status()
     data = resp.json()
-    result = ""
-    try:
-        candidates = data.get("candidates", [])
-        if candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            if parts:
-                result = parts[0].get("text", "")
-    except Exception:
-        result = str(data)
-    return _sanitize_llm_block(result.strip())
+    
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise RuntimeError(f"Gemini API returned no candidates. Response: {data}")
+        
+    first_candidate = candidates[0]
+    finish_reason = first_candidate.get("finishReason")
+    
+    # Check if Gemini blocked the proof generation due to safety/recitation flags
+    if finish_reason and finish_reason not in ("STOP", "MAX_TOKENS"):
+        raise RuntimeError(f"Gemini generation stopped unexpectedly. Reason: {finish_reason}. Data: {data}")
+
+    parts = first_candidate.get("content", {}).get("parts", [])
+    if not parts:
+        # If there's no text part but it didn't explicitly throw an error
+        raise RuntimeError(f"Gemini API returned an empty content part. Data: {data}")
+        
+    result = parts[0].get("text", "")
+    result = result.strip()
+    
+    # Return raw text here. Let the specialized caller handle parsing/sanitization!
+    return result
 
 # ========== Repair Operations (Data Classes) ==========
 @dataclass(frozen=True)
@@ -310,9 +317,15 @@ def _propose_block_repair(*, goal: str, errors: List[str], ce_hints: Dict[str, L
             prior_failed_blocks=(prior_failed_blocks or "(none)")
         )
     try:
-        return _sanitize_llm_block(_generate_simple(prompt, model=model, timeout_s=timeout_s))
+        # Run generative call via your wrapper (_generate_simple calls _gemini_generate)
+        raw_output = _generate_simple(prompt, model=model, timeout_s=timeout_s)
+        # Sanitize the raw string exactly once right here
+        santised_output =  _sanitize_llm_block(raw_output)
+        #print(f"[repair] santized_output = {santised_output}", flush=True)
+        return santised_output
     except Exception as e:
-        print(f"[repair] LLM call failed: {type(e).__name__}: {e}")
+        # Un-commenting this is critical to diagnose why the repair returns ""
+        #print(f"[repair] LLM block proposal generation failed: {type(e).__name__}: {e}", flush=True)
         return ""
 
 def propose_rule_based_repairs(goal_text: str, state_block: str, header: str, facts: List[str]) -> List[RepairOp]:
@@ -419,7 +432,7 @@ def _enclosing_subproof(lines: List[str], hole_line: int) -> Tuple[int, int]:
         j += 1
     return (i, j if j > i else -1)
 
-def _enclosing_have_show_block(lines: List[str], hole_line: int) -> Tuple[int, int]:
+def _enclosing_have_show_block(lines: List[str], hole_line: int, trace) -> Tuple[int, int]:
     if not lines:
         return (-1, -1)
 
@@ -430,18 +443,30 @@ def _enclosing_have_show_block(lines: List[str], hole_line: int) -> Tuple[int, i
     fence_re = re.compile(
         r"^\s*(?:have|show|obtain|thus|hence|then|also|moreover|ultimately|finally|case\b|next\b|qed\b)\b"
     )
+    # Stop boundaries: climbing past these means we left the current local block context entirely
+    boundary_re = re.compile(r"^\s*(?:lemma|theorem|proof|case\b|next\b|qed\b)\b")
+
+    # # Accept calculation elements as starting heads too
+    # head_re  = re.compile(r"^\s*(have|show|obtain|also|finally)\b")
+    # # REMOVED also, moreover, ultimately, finally from the fence boundaries
+    # fence_re = re.compile(
+    #     r"^\s*(?:have|show|obtain|thus|hence|then|case\b|next\b|qed\b)\b"
+    # )
 
     # climb to the enclosing have/show head, but stop if we hit a block fence
     while i >= 0 and not head_re.match(lines[i]):
-        if re.match(r"^\s*(?:case\b|next\b|qed\b)\b", lines[i]):
+        if boundary_re.match(lines[i]):
             return (-1, -1)
         i -= 1
 
     if i < 0 or not head_re.match(lines[i]):
         return (-1, -1)
 
-    # NEW: if the head line itself has an inline "by …", keep only that line
+    # if the head line itself has an inline "by …", keep only that line
     if _INLINE_BY_TAIL.search(lines[i] or ""):
+        # If it's a one-liner but our target hole is below it, then the hole is NOT encapsulated
+        if hole_line > i:
+            return (-1, -1)
         return (i, i + 1)
 
     # Track nested subproofs correctly from the head line outward.
@@ -467,6 +492,14 @@ def _enclosing_have_show_block(lines: List[str], hole_line: int) -> Tuple[int, i
             depth = max(0, depth - 1)
 
         j += 1
+
+    # CRITICAL CHECK: Does the block actually encapsulate our focus line?
+    # The block spans from index 'i' to 'j' (exclusive). If hole_line falls outside this range,
+    # the target line is in a structural gap, not inside this specific block.
+    if not (i <= hole_line < j):
+        if trace:
+            print(f"[repair] Found block ({i}, {j}) but it does not encapsulate focus line {hole_line}.")
+        return (-1, -1)
 
     return (i, j if j > i else -1)
 
@@ -673,6 +706,8 @@ def try_cegis_repairs(*, full_text: str, hole_span: Tuple[int, int], goal_text: 
                      isabelle, session: str, repair_budget_s: float = 15.0, max_ops_to_try: int = 3, 
                      beam_k: int = 1, allow_whole_fallback: bool = False, trace: bool = False, 
                      resume_stage: int = 0) -> Tuple[str, bool, str]:
+    from planner.skeleton import _quick_sketch_score    # imported here to prevent circular imports
+
     t0 = time.monotonic()
     left = lambda: max(0.0, repair_budget_s - (time.monotonic() - t0))
     current_text = full_text
@@ -684,27 +719,44 @@ def try_cegis_repairs(*, full_text: str, hole_span: Tuple[int, int], goal_text: 
 
     prior_store: Dict[str, List[str]] = {}
 
+    # Track initial baseline sketch score for relative improvement checks
+    initial_score = _quick_sketch_score(isabelle, session, current_text, timeout_s=min(10, left()), trace=trace)
+    current_best_score = initial_score
+
     # Stage 1: have/show/obtain micro-block
     hole_line, _, lines = _hole_line_bounds(current_text, hole_span)
     anchor_line, anchor_reason = _earliest_failure_anchor(isabelle, session, current_text, default_line_0=hole_line)
     focus_line = _clamp_line_index(lines, anchor_line)
+    #print(f"Focus line: {lines[focus_line]}", flush=True)
     if trace and anchor_line != hole_line:
-        print(f"[repair] Retargeting from hole line {hole_line + 1} to earliest-failure line {anchor_line + 1} ({anchor_reason})")
+        print(f"[repair] Retargeting from hole line {hole_line + 1} to earliest-failure line {anchor_line + 1} ({anchor_reason})", flush=True)
+
+    if left() <= 1.0:
+        if trace:
+            print(f"[repair] Hard budget timeout in try_cegis_repairs ({left():.2f}s remaining). Aborting loop entirely.")
+        return current_text, False, "timeout"
     
-    hs_s, hs_e = _enclosing_have_show_block(lines, focus_line)
+    hs_s, hs_e = _enclosing_have_show_block(lines, focus_line, trace)
     if resume_stage <= 1 and hs_s >= 0 and left() > 3.0:    # Fix: lower gate threshold from 5.0
         if trace:
             print("[repair] Trying have/show block repair…")
-        current_text = _repair_block(current_text, lines, hs_s, hs_e, goal_text, state0, 
+            print(f"Block: \n{lines[hs_s:hs_e]}")
+            
+        pre_repair_text = current_text
+        current_text, verified = _repair_block(current_text, lines, hs_s, hs_e, goal_text, state0, 
                                      isabelle, session, model, left, trace, "have-show", 
                                      stage=1, prior_store=prior_store)
-        if current_text != full_text:
-            thy = build_theory(current_text.splitlines(), add_print_state=False, end_with=None)
-            ok, _ = finished_ok(_run_theory_with_timeout(isabelle, session, thy, timeout_s=_ISA_VERIFY_TIMEOUT_S))
-            if ok:
+
+        if current_text != pre_repair_text:
+            if verified or _verify_full_proof(isabelle, session, current_text, timeout_s=min(15, left())):
                 return current_text, True, "stage=1 block:have-show"
-            # FIX: Return False for unverified changes
-            return current_text, False, "stage=1 partial-progress"
+
+            # If _repair_block updated the text, it has already verified internal score optimization.
+            # Commit it immediately as progress rather than validating against a global threshold.
+            if trace:
+                print(f"[repair] Stage 1 partial progress accepted.")
+            return current_text, False, "stage=1 block:have-show-partial"
+        
         lines = current_text.splitlines()
         state0 = _print_state_before_hole(isabelle, session, current_text, hole_span, trace=trace)
     
@@ -713,44 +765,71 @@ def try_cegis_repairs(*, full_text: str, hole_span: Tuple[int, int], goal_text: 
     if resume_stage <= 2 and cs >= 0 and left() > 3.0:    # Fix: lower gate threshold from 5.0
         if trace:
             print("[repair] Trying case-block repair…")
-        current_text = _repair_block(current_text, lines, cs, ce, goal_text, state0, isabelle, session, 
+
+        pre_repair_text = current_text
+        current_text, verified = _repair_block(current_text, lines, cs, ce, goal_text, state0, isabelle, session, 
                                      model, left, trace, "case", stage=2, prior_store=prior_store)
-        if current_text != full_text:
-            thy = build_theory(current_text.splitlines(), add_print_state=False, end_with=None)
-            ok, _ = finished_ok(_run_theory_with_timeout(isabelle, session, thy, timeout_s=_ISA_VERIFY_TIMEOUT_S))
-            if ok:
+
+        if current_text != pre_repair_text:
+            if verified or _verify_full_proof(isabelle, session, current_text, timeout_s=min(15, left())):
                 return current_text, True, "stage=2 block:case"
-            # FIX: Return False for unverified changes
-            return current_text, False, "stage=2 partial-progress"
-    
+
+            # If _repair_block updated the text, it has already verified internal score optimization.
+            # Commit it immediately as progress rather than validating against a global threshold.
+            if trace:
+                print(f"[repair] Stage 2a partial progress accepted.")
+            return current_text, False, "stage=2 block:case-partial"
+        
+        lines = current_text.splitlines()
+        state0 = _print_state_before_hole(isabelle, session, current_text, hole_span, trace=trace)
+
+
     # Stage 2b: Subproof
     ps, pe = _enclosing_subproof(lines, focus_line)
     if resume_stage <= 2 and ps >= 0 and left() > 2.0:    # Fix: lower gate threshold from 3.0
         if trace:
             print("[repair] Trying subproof repair…")
-        current_text = _repair_block(current_text, lines, ps, pe, goal_text, state0, isabelle, session, 
+
+        pre_repair_text = current_text
+        current_text, verified = _repair_block(current_text, lines, ps, pe, goal_text, state0, isabelle, session, 
                                      model, left, trace, "subproof", stage=2, prior_store=prior_store)
-        if current_text != full_text:
-            thy = build_theory(current_text.splitlines(), add_print_state=False, end_with=None)
-            ok, _ = finished_ok(_run_theory_with_timeout(isabelle, session, thy, timeout_s=_ISA_VERIFY_TIMEOUT_S))
-            if ok:
+
+        if current_text != pre_repair_text:
+            if verified or _verify_full_proof(isabelle, session, current_text, timeout_s=min(15, left())):
                 return current_text, True, "stage=2 block:subproof"
-            # FIX: Return False for unverified changes
-            return current_text, False, "stage=2 partial-progress"
+
+            # If _repair_block updated the text, it has already verified internal score optimization.
+            # Commit it immediately as progress rather than validating against a global threshold.
+            if trace:
+                print(f"[repair] Stage 2b partial progress accepted.")
+            return current_text, False, "stage=2 block:subproof-partial"
     
-    if current_text != full_text:
-        return current_text, False, f"stage={resume_stage} partial-progress"
+        lines = current_text.splitlines()
+        state0 = _print_state_before_hole(isabelle, session, current_text, hole_span, trace=trace)
+
+    best_candidate = current_text if current_text != full_text else full_text
+    if best_candidate != full_text:
+        return best_candidate, False, f"stage={resume_stage} cegis-partial"
     return full_text, False, f"stage={resume_stage} cegis-nohelp"
 
 def _repair_block(current_text: str, lines: List[str], start: int, end: int, goal_text: str, 
                  state0: str, isabelle, session: str, model: Optional[str], left, trace: bool, 
-                 block_type: str, stage: int, *, prior_store: Optional[Dict[str, List[str]]] = None) -> str:
+                 block_type: str, stage: int, *, prior_store: Optional[Dict[str, List[str]]] = None) -> Tuple[str, bool]:
+    """Returns a Tuple[str, bool] representing (patched_text, verified_fully)."""
+    from planner.skeleton import _quick_sketch_score    # imported here to prevent circular imports
+
     _, errs = _quick_state_and_errors(isabelle, session, current_text)
     err_texts = _normalize_error_texts(errs)
     ce = get_counterexample_hints_for_repair(isabelle, session, state0, timeout_s=10)
     block = "\n".join(lines[start:end])
+
+    # Track baseline score internal to the mutation loops
+    base_score = _quick_sketch_score(isabelle, session, current_text, timeout_s=10, trace=trace)
+    best_local_score = base_score
+    best_text_so_far = current_text
+    is_fully_verified = False
     
-    # NEW: Extract proof context instead of using state block
+    # Extract proof context instead of using state block
     proof_context = _extract_proof_context(current_text, start)
     
     _log("repair", f"{block_type}-block (input)", block, trace=trace)
@@ -762,8 +841,10 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
     mem = _RepairMemory()
 
     # Build proposals in a few rounds; track failures and surface them to the LLM
+    timed_out = False
     for rr in range(rounds):
         if left() <= 3.0:
+            timed_out = True
             break
         mem.rounds = rr + 1
         why = f"Previous {block_type}-block attempt did not solve the goal; try a different strategy."
@@ -795,12 +876,21 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
             fails_txt = "(none)"        
         
         try:
-            blk = _propose_block_repair(
-                goal=goal_text, errors=err_texts, ce_hints=ce, 
-                proof_context=proof_context, block_type=block_type,
-                block_text=block, model=model, timeout_s=timeout, why=why,
-                prior_failed_blocks=fails_txt
-            )
+            # blk = _propose_block_repair(
+            #     goal=goal_text, errors=err_texts, ce_hints=ce, 
+            #     proof_context=proof_context, block_type=block_type,
+            #     block_text=block, model=model, timeout_s=timeout, why=why,
+            #     prior_failed_blocks=fails_txt
+            # )
+
+            # remove this
+            blk = """
+have "rev ((Cons x xs) @ ys) = rev (x # (xs @ ys))"
+      by simp
+"""
+            blk = _sanitize_llm_block(blk)
+            print(f"blk:\n{blk}", flush=True)
+
         except Exception as e:
             # #Fix: On any exception (including a 429 that slipped past raise_for_status,
             # #Fix: or a network blip), wait one full delay period before trying the
@@ -809,7 +899,7 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
                 err_str = str(e)
                 if "429" in err_str:
                     wait = 15.0
-                    print(f"[repair] 429 rate limit, sleeping {wait}s...")
+                    print(f"[repair] 429 rate limit, sleeping {wait}s...", flush=True)
                     time.sleep(wait)
                 elif "timeout" in err_str.lower():
                     time.sleep(2.0)
@@ -824,7 +914,7 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
         
         if fp_new in all_prior_fps:
             if trace:
-                print(f"[repair] Skipping duplicate block (fingerprint: {fp_new[:8]}...)")
+                print(f"[repair] Skipping duplicate block (fingerprint: {fp_new[:8]}...)", flush=True)
             continue  # Don't even try to verify, just skip
         
         before = blk
@@ -835,13 +925,64 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
         elif block_type == "subproof":
             blk = _strip_wrapper_to_subproof(blk)              
         if blk.strip() == block.strip():
-            continue
+            continue 
         
-        blk_with_sorry = _replace_failing_tactics_with_sorry(blk, full_text_lines=lines, start_line=start + 1, 
-                                                             end_line=end + 1, isabelle=isabelle, 
-                                                             session=session, trace=trace)
-        _log("repair", f"{block_type}-block (output)", blk_with_sorry, trace=trace)
-        
+        # Build the patched text from the raw LLM block (no sorry substitution yet)
+        new_block_lines_raw = blk.splitlines()
+        patched_raw = "\n".join(lines[:start] + new_block_lines_raw + lines[end:])
+
+        # Score in FULL context first — this is what matters
+        candidate_score = _quick_sketch_score(isabelle, session, patched_raw, timeout_s=10, trace=trace)
+        if trace:
+            print(f"[cegis-eval] candidate_score={candidate_score} best_local_score={best_local_score} same_text={patched_raw == current_text}", flush=True)
+
+        if candidate_score <= best_local_score and patched_raw != current_text:
+            if trace:
+                print(f"[cegis-eval] Block mutation improved score {best_local_score} → {candidate_score}", flush=True)
+
+            # Only now sorry-ify to get a safe storable version
+            blk_with_sorry = _replace_failing_tactics_with_sorry(
+                blk, full_text_lines=lines, start_line=start + 1,
+                end_line=end + 1, isabelle=isabelle, session=session, trace=trace
+            )
+
+            # Extract the EXACT leading indentation of the first line we are replacing
+            original_indent = ""
+            if start < len(lines):
+                original_indent = lines[start][:len(lines[start]) - len(lines[start].lstrip())]
+            
+            # Apply that exact indentation to the replacement lines
+            new_block_lines = []
+            for i, line in enumerate(blk_with_sorry.splitlines()):
+                if line.strip() == "":
+                    new_block_lines.append("")
+                elif i == 0 or not line.startswith(original_indent):
+                    # Strip any weak formatting the LLM guessed and prepend the TRUE indent
+                    new_block_lines.append(original_indent + line.lstrip())
+                else:
+                    new_block_lines.append(line)
+
+            patched = "\n".join(lines[:start] + new_block_lines + lines[end:])
+            best_local_score = candidate_score
+            best_text_so_far = patched
+
+            end = start + len(new_block_lines)
+
+            if trace:
+                print(f"patched:\n{patched}\n", flush=True)
+                print(f"patched_raw:\n{patched_raw}\n", flush=True)
+
+            if _verify_full_proof(isabelle, session, patched_raw, timeout_s=10):
+                return patched, True
+        else:
+            # No improvement — sorry-ify just to record as prior failure
+            blk_with_sorry = _replace_failing_tactics_with_sorry(
+                blk, full_text_lines=lines, start_line=start + 1,
+                end_line=end + 1, isabelle=isabelle, session=session, trace=trace
+            )
+
+        _log("repair", f"{block_type}-block (output)", blk_with_sorry, trace=trace)  
+
         # Record this failed candidate into local and shared stores (so next round tries differ)
         fp = _fingerprint_block(blk_with_sorry)
         if fp and fp not in mem.prev_fps:
@@ -853,28 +994,31 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
                 # De-dup in shared store too
                 if fp not in [_fingerprint_block(x) for x in lst]:
                     lst.insert(0, blk_with_sorry)
-                    del lst[_MAX_PREV_BLOCKS:]        
+                    del lst[_MAX_PREV_BLOCKS:]   
         
-        # FIX: Properly replace the block by splitting into lines
-        new_block_lines = blk_with_sorry.splitlines()
-        patched_lines = lines[:start] + new_block_lines + lines[end:]
-        patched = "\n".join(patched_lines)
+        # === SYSTEMATIC LINE ALIGNMENT FIX ===
+        # Capture the length before we update current_text
+        old_num_lines = len(lines)
         
-        thy = build_theory(patched.splitlines(), add_print_state=False, end_with=None)
-        ok, _ = finished_ok(_run_theory_with_timeout(isabelle, session, thy, timeout_s=_ISA_VERIFY_TIMEOUT_S))
+        current_text = best_text_so_far
+        lines = current_text.splitlines()
+        new_num_lines = len(lines)
         
-        if ok:
-            return patched
-        
-        # Update for next iteration - recalculate indices based on new block size
-        current_text = patched
-        lines = patched_lines  # Use the already-split lines
-        # Adjust end index: new_end = start + len(new_block_lines)
-        end = start + len(new_block_lines)
-        # Update proof context for next round too
+        # If the file length shifted because an earlier round's patch was accepted,
+        # adjust both tracking metrics by the precise layout delta.
+        if new_num_lines != old_num_lines:
+            line_delta = new_num_lines - old_num_lines
+            end = end + line_delta
+            
         proof_context = _extract_proof_context(current_text, start)
     
-    return current_text
+    # If we exited due to a timer expiration, let the caller know it was an invalid run
+    if timed_out and best_text_so_far == current_text:
+        print(f"Timed out")
+        return current_text, False
+
+    # Always return a tuple matching (patched_text, verified_fully)
+    return best_text_so_far, is_fully_verified
 
 # ---------- Public helper: whole-proof regeneration with prior-failure banlist ----------
 def regenerate_whole_proof(*, full_text: str, goal_text: str, model: Optional[str],
@@ -908,9 +1052,12 @@ def regenerate_whole_proof(*, full_text: str, goal_text: str, model: Optional[st
     prior_store: Dict[str, List[str]] = {}
     if prior_outline_text:
         prior_store["whole"] = [prior_outline_text]
-    patched = _repair_block(full_text, lines, ws, we, goal_text, state0, isabelle, session,
+
+    # Unpack the updated tuple payload format cleanly here
+    patched, verified = _repair_block(full_text, lines, ws, we, goal_text, state0, isabelle, session,
                             model, left, trace, "whole", stage=3, prior_store=prior_store)
-    if patched != full_text:
+    if verified:
         # _repair_block only returns a different text if it verified successfully
         return patched, True, "regen:whole-proof"
+    
     return full_text, False, "regen:no-change"

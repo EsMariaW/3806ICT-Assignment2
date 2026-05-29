@@ -39,31 +39,58 @@ def _earliest_failure_anchor(isabelle, session: str, full_text: str, *, default_
     # from the proof-text line by exactly this many lines. We subtract it to map
     # an error position back onto the proof text we index into here. (The header
     # is always 3 lines regardless of how many imports are listed.)
-    _HEADER_OFFSET = 3
     try:
         lines = full_text.splitlines()
+
+        # Dynamically find the real header offset based on what build_theory emits
+        # by checking where the source body text actually begins in the template.
+        thy_lines = build_theory(lines, add_print_state=False, end_with=None).splitlines()
+
+        header_offset = 0
+        if lines and lines[0] in thy_lines:
+            header_offset = thy_lines.index(lines[0])
+        else:
+            header_offset = 3 # Safe fallback
+
         _, errs = _quick_state_and_errors(isabelle, session, full_text)
         err_lines = sorted(_extract_error_lines(errs))
+
         if err_lines:
             # theory line -> proof-text 0-based index: subtract header, then 1 for 0-based.
-            pos0 = err_lines[0] - 1 - _HEADER_OFFSET
+            pos0 = err_lines[0] - 1 - header_offset
             if 0 <= pos0 < len(lines):
                 return pos0, "error_line"
+            
             # Fallback A: if header correction over/undershot but the *raw* 0-based
             # line is in range, use that (defensive — keeps prior behaviour working).
             raw0 = err_lines[0] - 1
             if 0 <= raw0 < len(lines):
                 return raw0, "error_line_raw"
+            
             for i, L in enumerate(lines):
                 if "sorry" in L:
                     return i, "first_sorry_from_error"
+                
             return _nearest_structural_head_before(lines, len(lines) - 1), "error_line_out_of_range"
+        
+        # Handle unparsed/line-less structural errors ===
+        # If errs is populated but no clean numbers were parsed, Isabelle is choking
+        # on structural layout commands (like a broken 'also have' sequence).
+        if errs:
+            # Search backward from the end of the proof to find where the calculation breaks down
+            for i in range(len(lines) - 1, -1, -1):
+                line_strip = lines[i].strip()
+                # Target lines using unverified or risky facts/tactics within the block
+                if "add:" in line_strip or "using" in line_strip or line_strip.startswith("by "):
+                    return i, "structural_error_fallback"
+
         thy = build_theory(lines, add_print_state=False, end_with=None)
         ok, _ = finished_ok(_run_theory_with_timeout(isabelle, session, thy, timeout_s=_ISA_VERIFY_TIMEOUT_S))
         if not ok:
             for i, L in enumerate(lines):
                 if "sorry" in L:
                     return i, "first_sorry"
+                
         return default_line_0, "default"
     except Exception:
         return default_line_0, "default"

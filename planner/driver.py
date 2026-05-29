@@ -287,7 +287,7 @@ def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model:
     t_spans = _tactic_spans_topdown(full)
     if not t_spans:
         return full, False
-
+    
     i = 0
     while i < len(t_spans) and left_s() > 3.0:
         span = t_spans[i]
@@ -302,13 +302,30 @@ def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model:
 
         per_budget = min(30.0, max(15.0, left_s() * 0.33))
 
+        # Guard rails: Cap an individual hole repair attempt at 30 seconds max.
+        # But only enforce a 15-second floor if we actually HAVE 15 seconds left globally!
+        if left_s() > 15.0:
+            per_budget = min(30.0, max(15.0, per_budget))
+        else:
+            per_budget = left_s() # Give it everything that's left over
+
+        # If the driver has effectively run out of time entirely, skip the attempt
+        if per_budget <= 2.0:
+            if trace:
+                print(f"[Driver] Skipping CEGIS Repair for this hole; global time is exhausted ({left_s():.2f}s left).")
+            break # Break out of the driver loop or continue to final sequence
+
         try:
-            patched, applied, _ = try_cegis_repairs(
+            if trace:
+                print(f"[Driver] _repair_failed_proof_topdown attempting CEGIS Repair", flush=True)
+            patched, verified, stage_info = try_cegis_repairs(
                 full_text=full, hole_span=span, goal_text=eff_goal, model=model,
                 isabelle=isa, session=session, repair_budget_s=per_budget,
                 max_ops_to_try=max_repairs_per_hole, beam_k=2,
                 allow_whole_fallback=False, trace=trace, resume_stage=0,
             )
+            if trace:
+                print(f"[topdown] patched==full: {patched == full}, verified: {verified}, stage: {stage_info}", flush=True)
         except (TimeoutError, _FuturesTimeout, ValueError) as ex:
             # TimeoutError: verifier timed out; ValueError: isabelle_client returned unexpected/empty response
             if trace:
@@ -319,23 +336,26 @@ def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model:
                 print(f"[repair] CEGIS repair crashed (treat as failed): {type(ex).__name__}: {ex}", flush=True)
             return full, False
 
-        if applied and patched != full:
-            if _verify_full_proof(isa, session, patched):
-                return patched, True
-
-            # Partial progress: keep it, then try to open the failing spot into a 'sorry'
-            if trace:
-                print("[repair] Partial progress in topdown repair (unverified). Opening sorries...")
+        if patched != full:
             full = patched
-            full2, opened = _open_minimal_sorries(isa, session, full, trace)
-            if opened:
-                full = full2
-                t_spans = _tactic_spans_topdown(full)
-                i = 0
-                continue
+            if verified:
+                if _verify_full_proof(isa, session, full):
+                    return full, True
+                
+            # Only perform sorry minimization if we aren't mid-stream on a partial block chain optimization
+            if "-partial" not in stage_info:
+                full2, opened = _open_minimal_sorries(isa, session, full, trace)
+                if opened:
+                    full = full2
+
+            t_spans = _tactic_spans_topdown(full)
+            i = 0
+            continue
 
         i += 1
 
+    if trace:
+        print(f"Full:\n{full}", flush=True)
     return full, False
 
 
@@ -709,6 +729,27 @@ def _syntax_fix_is_safe(original: str, fixed: str) -> bool:
     return True
 
 
+def _replace_line_index_with_sorry(text: str, line_1based: int) -> str:
+    """Replaces a specific 1-based line index in a string with an indented 'sorry'."""
+    lines = text.splitlines()
+    idx = line_1based - 1
+    if 0 <= idx < len(lines):
+        line = lines[idx]
+        indent = line[:len(line) - len(line.lstrip(" "))]
+        
+        # If it's an inline calculation or structure line containing a 'by', make it 'by sorry'
+        if " by " in line or line.strip().startswith("by "):
+            m = re.search(r"\s+by\s+", line)
+            if m:
+                lines[idx] = line[:m.start()] + " by sorry"
+            else:
+                lines[idx] = f"{indent}by sorry"
+        else:
+            lines[idx] = f"{indent}sorry"
+            
+    return "\n".join(lines) + "\n"
+
+
 # NOTE 1.1: Input Goal (Main entry point for program)
 def plan_and_fill(goal: str, model: Optional[str] = None, timeout: int = 100, *, mode: str = "auto",
                   outline_k: Optional[int] = None, outline_temps: Optional[Iterable[float]] = None,
@@ -967,14 +1008,23 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 print(full)
                 print("-" * 100 + "\n", flush=True)
 
-        # Fix 2: explicitly split time between skeleton generation and repair
         # Reset the clock reference for repair/fill stage
-        # Guarantee repair gets at least _repair_reserve_s seconds
         _repair_start = time.monotonic()
+        
+        # Calculate how much global time was actually consumed during the skeleton phase
+        time_spent_so_far = _repair_start - t0
+        
+        # Repair gets whatever is left of the total timeout, 
+        # but we guarantee it gets AT LEAST _repair_reserve_s if the skeleton phase went over.
+        allocated_repair_time = max(_repair_reserve_s, timeout - time_spent_so_far)
+        
+        # Establish the absolute termination wall-clock timestamp
         _repair_end = min(
-            _repair_start + _repair_reserve_s,  # guaranteed minimum
-            t0 + timeout  # but never beyond total timeout
+            _repair_start + allocated_repair_time,
+            t0 + timeout  # Absolute hard boundary guard
         )
+        
+        # Update lambda pointer to safely compute against the true ceiling
         left_s = lambda: max(0.0, _repair_end - time.monotonic())
 
         # Get location of all sorry holes in the skeleton
@@ -1071,7 +1121,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
 
             if repairs and left_s() > 3.0:  # Fix to match thresholds (changed from >6.0)
                 if trace:
-                    print("[Driver] Engaging top-down repair on the failed complete proof...")
+                    print(f"[Driver] Engaging top-down repair on the failed complete proof...", flush=True)
                 full, ok = _repair_failed_proof_topdown(isa, session, full, goal, model, left_s, max_repairs_per_hole,
                                                         trace)
                 if ok:
@@ -1247,7 +1297,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                         else:
                             # The proof has no sorries, but doesn't verify: force escalate to top-down structure repair instead of letting the while loop die.
                             if trace:
-                                print("[Driver] No sorries left but proof unverified. Escalating to structure repair.")
+                                print(f"[Driver] No sorries left but proof unverified. Escalating to structure repair.; time = {left_s()}", flush=True)
                             full, ok = _repair_failed_proof_topdown(isa, session, full, goal_text, model, left_s,
                                                                     max_repairs_per_hole, trace)
                             if ok:
@@ -1256,7 +1306,21 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                             # If that fails, break or open a minimal sorry back up to let CEGIS fix the structural line
                             full, opened = _open_minimal_sorries(isa, session, full, trace)
                             if not opened:
-                                break
+                                if trace:
+                                    print("[Driver] Structural errors undetected by line probe. Forcing the final calculation line open to continue repair loop...", flush=True)
+                                # Fallback: Manually break open the line right before the 'finally' block...
+                                lines = full.splitlines()
+                                for idx in range(len(lines) - 1, -1, -1):
+                                    stripped = lines[idx].lstrip()
+                                    # Ensure it's a structural keyword command, not a random word in a string literal
+                                    if stripped.startswith("finally") or stripped.startswith("show ?case"):
+                                        indent = lines[idx][:len(lines[idx]) - len(stripped)]
+                                        lines[idx] = f"{indent}sorry"
+                                        break
+                                full = "\n".join(lines) + "\n"
+                                current_best_score = 9999  # Reset score so next mutation is accepted
+                                focused_hole_key = None
+                                continue  # Keep the loop spinning!
 
                     # Track progress and continue to the next iteration safely
                     repair_progress[hole_key] = 0  # Keep it at stage 0 since it succeeded!
@@ -1294,7 +1358,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 try:
                     if trace:
                         print(
-                            f"[Driver] Attempting CEGIS repairs on hole @{hole_key} with effective goal:\n{eff_goal}\n",
+                            f"[Driver] plan_and_fill attempting CEGIS repairs on hole @{hole_key} with effective goal:\n{eff_goal}\n",
                             flush=True)
                     patched, applied, _ = try_cegis_repairs(
                         full_text=full, hole_span=span, goal_text=eff_goal, model=model,
