@@ -288,9 +288,9 @@ def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model:
     if not t_spans:
         return full, False
 
-    current_stage = 0  # 0=find first span, 1=have/show, 2=subproof, 3=whole
+    current_stage = 1  # 1=have/show, 2=subproof, 3=whole
     stage_attempts = {1: 0, 2: 0, 3: 0}
-    STAGE_CAPS = {1: 2, 2: 2, 3: 1}
+    STAGE_CAPS = {1: 3, 2: 2, 3: 2}
     
     while left_s() > 3.0:
         # Pick the span closest to the actual error
@@ -298,82 +298,102 @@ def _repair_failed_proof_topdown(isa, session, full: str, goal_text: str, model:
         if span is None:
             break
 
-        try:
-            st = _print_state_before_hole(isa, session, full, span, trace)
-            eff_goal = _effective_goal_from_state(st, goal_text, full, span, trace)
-        except Exception as ex:
-            if trace:
-                print(f"[repair] Could not extract state/goal before tactic (skipping): {ex}", flush=True)
-            break
+        # Only execute the CEGIS repair block if we are actually in a CEGIS-supported stage (1 or 2)
+        if current_stage < 3:
+            try:
+                st = _print_state_before_hole(isa, session, full, span, trace)
+                eff_goal = _effective_goal_from_state(st, goal_text, full, span, trace)
+            except Exception as ex:
+                if trace:
+                    print(f"[repair] Could not extract state/goal before tactic (skipping): {ex}", flush=True)
+                break
 
-        resume = 1 if current_stage <= 1 else 2
+            resume = 1 if current_stage <= 1 else 2
 
-        per_budget = min(30.0, left_s() * 0.5) if left_s() > 15.0 else left_s()
-        # If the driver has effectively run out of time entirely, skip the attempt
-        if per_budget <= 2.0:
-            if trace:
-                print(f"[Driver] Skipping CEGIS Repair for this hole; global time is exhausted ({left_s():.2f}s left).")
-            break # Break out of the driver loop or continue to final sequence
+            per_budget = min(30.0, left_s() * 0.5) if left_s() > 15.0 else left_s()
+            # If the driver has effectively run out of time entirely, skip the attempt
+            if per_budget <= 2.0:
+                if trace:
+                    print(f"[Driver] Skipping CEGIS Repair for this hole; global time is exhausted ({left_s():.2f}s left).")
+                break # Break out of the driver loop or continue to final sequence
 
-        try:
-            if trace:
-                print(f"[Driver] _repair_failed_proof_topdown attempting CEGIS Repair", flush=True)
-            patched, verified, stage_info = try_cegis_repairs(
-                full_text=full, hole_span=span, goal_text=eff_goal, model=model,
-                isabelle=isa, session=session, repair_budget_s=per_budget,
-                max_ops_to_try=max_repairs_per_hole, beam_k=2,
-                allow_whole_fallback=False, trace=trace, resume_stage=resume,
-            )
-            if trace:
-                print(f"[topdown] patched==full: {patched == full}, verified: {verified}, stage: {stage_info}", flush=True)
-        # except (TimeoutError, _FuturesTimeout, ValueError) as ex:
-        #     # TimeoutError: verifier timed out; ValueError: isabelle_client returned unexpected/empty response
-        #     if trace:
-        #         print(f"[repair] CEGIS repair aborted (treat as failed): {type(ex).__name__}: {ex}", flush=True)
-        #     return full, False
-        except Exception as ex:
-            if trace:
-                print(f"[repair] CEGIS repair aborted/crashed (treat as failed): {type(ex).__name__}: {ex}", flush=True)
-            break
-
-        if patched != full:
-            full = patched
-            if verified and _verify_full_proof(isa, session, full):
-                return full, True
-                
-            # Partial progress — open sorries and reset stage
-            full2, opened = _open_minimal_sorries(isa, session, full, trace)
-            if opened:
-                full = full2
-            t_spans = _tactic_spans_topdown(full)
-            current_stage = 1  # restart from stage 1 on the new proof
-            stage_attempts = {1: 0, 2: 0, 3: 0}
-            continue
-
-        # No progress — escalate
-        current_stage = max(current_stage, resume)
-        stage_attempts[current_stage] = stage_attempts.get(current_stage, 0) + 1
-        if trace:
-            print(f"[repair] Stage {current_stage} attempt {stage_attempts[current_stage]}/{STAGE_CAPS[current_stage]} failed", flush=True)
-
-        if stage_attempts[current_stage] >= STAGE_CAPS[current_stage]:
-            current_stage += 1
-            if trace:
-                print(f"[repair] Escalating to stage {current_stage}", flush=True)
-
-        if current_stage >= 3:
-            # Stage 3: whole proof regeneration
-            if left_s() > 5.0:
-                new_full, ok_re, _ = regenerate_whole_proof(
-                    full_text=full, goal_text=goal_text, model=model,
-                    isabelle=isa, session=session, budget_s=min(40.0, left_s() * 0.8),
-                    trace=trace, prior_outline_text=full
+            try:
+                if trace:
+                    print(f"[Driver] _repair_failed_proof_topdown attempting CEGIS Repair", flush=True)
+                patched, verified, stage_info = try_cegis_repairs(
+                    full_text=full, hole_span=span, goal_text=eff_goal, model=model,
+                    isabelle=isa, session=session, repair_budget_s=per_budget,
+                    max_ops_to_try=max_repairs_per_hole, beam_k=2,
+                    allow_whole_fallback=False, trace=trace, resume_stage=resume,
                 )
+                if trace:
+                    print(f"[topdown] patched==full: {patched == full}, verified: {verified}, stage: {stage_info}", flush=True)
+            # except (TimeoutError, _FuturesTimeout, ValueError) as ex:
+            #     # TimeoutError: verifier timed out; ValueError: isabelle_client returned unexpected/empty response
+            #     if trace:
+            #         print(f"[repair] CEGIS repair aborted (treat as failed): {type(ex).__name__}: {ex}", flush=True)
+            #     return full, False
+            except Exception as ex:
+                if trace:
+                    print(f"[repair] CEGIS repair aborted/crashed (treat as failed): {type(ex).__name__}: {ex}", flush=True)
+                break
+
+            if patched != full:
+                full = patched
+                if verified and _verify_full_proof(isa, session, full):
+                    return full, True
+                    
+                # Partial progress — open sorries and reset stage
+                full2, opened = _open_minimal_sorries(isa, session, full, trace)
+                if opened:
+                    full = full2
+                t_spans = _tactic_spans_topdown(full)
+                current_stage = 1  # restart from stage 1 on the new proof
+                stage_attempts = {1: 0, 2: 0, 3: 0}
+                continue
+
+            # No progress — escalate
+            current_stage = max(current_stage, resume)
+            stage_attempts[current_stage] = stage_attempts.get(current_stage, 0) + 1
+            if trace:
+                print(f"[repair] Stage {current_stage} attempt {stage_attempts[current_stage]}/{STAGE_CAPS[current_stage]} failed", flush=True)
+
+            if stage_attempts[current_stage] >= STAGE_CAPS[current_stage]:
+                current_stage += 1
+                if trace:
+                    print(f"[repair] Escalating to stage {current_stage}", flush=True)
+
+        # Stage 3: whole proof regeneration
+        if current_stage == 3:
+            stage_attempts[3] = stage_attempts.get(3, 0) + 1
+            if trace:
+                print(f"[repair] Stage 3 attempt {stage_attempts[3]}/{STAGE_CAPS[3]} executing...", flush=True)
+
+            if left_s() > 5.0:
+                try:
+                    new_full, ok_re, _ = regenerate_whole_proof(
+                        full_text=full, goal_text=goal_text, model=model,
+                        isabelle=isa, session=session, budget_s=min(40.0, left_s() * 0.8),
+                        trace=trace, prior_outline_text=full
+                    )
+                except Exception as ex:
+                    if trace:
+                        print(f"[repair] Stage 3 regeneration crashed: {ex}", flush=True)
+                    new_full, ok_re = full, False
+
                 if ok_re or new_full != full:
                     full = new_full
                     if ok_re or _verify_full_proof(isa, session, full):
                         return full, True
-            break
+            # Check if Stage 3 has exhausted its allotted multi-run cap limit
+            if stage_attempts[3] >= STAGE_CAPS[3]:
+                if trace:
+                    print(f"[repair] Stage 3 cap ({STAGE_CAPS[3]}) exhausted. Giving up on proof outline.", flush=True)
+                break
+            else:
+                if trace:
+                    print(f"[repair] Stage 3 pass failed. Retrying whole-proof regeneration...", flush=True)
+                continue
 
     return full, False
 
@@ -1361,6 +1381,8 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
 
             # Try CEGIS repairs
             current_stage = repair_progress.get(hole_key, 0)
+            start_stage = current_stage  # Fix: explicitly define start_stage for the tracking logic!
+
             if current_stage > 0 and repairs and left_s() > 6:
                 if trace:
                     print(f"[Driver] Entering repair stage {current_stage} for hole @{hole_key}...", flush=True)
@@ -1389,7 +1411,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                     )
                 except (TimeoutError, _FuturesTimeout, ValueError) as ex:
                     _restart_isabelle("try_cegis_repairs", ex)
-                    patched, applied = full, False
+                    continue
                 except Exception as ex:
                     if trace:
                         print(f"[Driver] try_cegis_repairs crashed: {type(ex).__name__}: {ex}", flush=True)
@@ -1427,8 +1449,16 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 key = (hole_key, start_stage)
                 stage_tries[key] = stage_tries.get(key, 0) + 1
 
-                STAGE1_CAP = 2
-                STAGE2_CAP = 3
+                STAGE1_CAP = 3
+                STAGE2_CAP = 2
+                STAGE3_CAP = 2
+
+                # Log the current progress metric accurately
+                if trace:
+                    current_cap = (STAGE1_CAP if start_stage == 1 
+                                   else STAGE2_CAP if start_stage == 2 
+                                   else STAGE3_CAP)
+                    print(f"[Driver] Hole @{hole_key} Stage {start_stage} attempt {stage_tries[key]}/{current_cap} failed to improve score.", flush=True)
 
                 # FALSE-SUBGOAL FAST-PATH:
                 # If the per-line Nitpick/Quickcheck diagnostic proved that a
@@ -1438,6 +1468,7 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 # remaining caps and jump straight to whole-proof regeneration.
                 false_lines = pop_false_subgoal_lines()
                 force_regen = bool(false_lines)
+                
                 if force_regen and trace:
                     print(f"[Driver] FALSE subgoal proven at line(s) {sorted(false_lines)}; "
                           f"skipping leaf-repair and regenerating whole proof.", flush=True)
@@ -1446,20 +1477,31 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 if start_stage == 1 and stage_tries[key] >= STAGE1_CAP:
                     should_escalate = True
                     if trace:
-                        print(f"[Driver] Stage 1 cap ({STAGE1_CAP}) reached. Escalating to stage 2...", flush=True)
-                elif start_stage == 2 and stage_tries.get((hole_key, 2), 0) >= STAGE2_CAP:
+                        print(f"[Driver] Stage 1 cap ({STAGE1_CAP}) reached for hole @{hole_key}. Escalating to stage 2...", flush=True)
+                elif start_stage == 2 and stage_tries[key] >= STAGE2_CAP:
                     should_escalate = True
                     if trace:
-                        print(f"[Driver] Stage 2 cap ({STAGE2_CAP}) reached. Regenerating whole proof...", flush=True)
+                        print(f"[Driver] Stage 2 cap ({STAGE2_CAP}) reached for hole @{hole_key}. Regenerating whole proof...", flush=True)
+                elif start_stage == 3 and stage_tries[key] >= STAGE3_CAP:
+                    should_escalate = True
+                    if trace:
+                        print(f"[Driver] Stage 3 cap ({STAGE3_CAP}) reached for hole @{hole_key}. Breaking structure for fresh outline...", flush=True)
 
                 if should_escalate:
-                    # A proven-false subgoal means stage-2 leaf repair is also
-                    # futile, so force the jump to regeneration regardless of stage.
-                    if start_stage < 2 and not force_regen:
+
+                    # Move smoothly from Stage 1 to Stage 2 if no structural false obligations were detected
+                    if start_stage == 1 and not force_regen:
                         repair_progress[hole_key] = 2
                         focused_hole_key = hole_key
                         continue
-                    else:
+
+                    # Execute Stage 3: Whole-Proof Regeneration Loop
+                    elif start_stage == 2 or (start_stage == 3 and stage_tries[key] < STAGE3_CAP):
+
+                        # Force our tracker state to stick to Stage 3 for consecutive passes
+                        repair_progress[hole_key] = 3
+                        focused_hole_key = hole_key
+
                         regen_budget = min(40.0, max(8.0, left_s() * 0.8))
                         try:
                             new_full, ok_re, _ = regenerate_whole_proof(
@@ -1490,7 +1532,13 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                             continue
 
                         if trace:
-                            print("[Driver] Whole regeneration failed to verify; proposing a fresh outline…")
+                            print(f"[Driver] Whole regeneration pass {stage_tries[key]} failed to find candidate.", flush=True)
+                        continue
+                    
+                    # Fallthrough: Both local tactics and whole-regeneration passes are completely exhausted
+                    else:
+                        if trace:
+                            print("[Driver] Structural paths exhausted; proposing a completely fresh outline…")
                         temps = tuple(outline_temps) if outline_temps else (0.35, 0.55, 0.85)
                         k = int(outline_k) if outline_k is not None else 3
                         best, _ = propose_isar_skeleton_diverse_best(
@@ -1513,28 +1561,22 @@ Example output: (¬ (∃x. P x)) ⟷ (∀x. ¬ P x)
                 if patched != full:
                     if trace:
                         cap = STAGE1_CAP if start_stage == 1 else STAGE2_CAP
-                        print(
-                            f"[repair] Stage {start_stage} changed but unverified/unoptimized (attempt {stage_tries[key]}/{cap}). Opening sorries...",
-                            flush=True)
+                        print(f"[repair] Stage {start_stage} changed but unverified/unoptimized (attempt {stage_tries[key]}/{cap}). Opening sorries...", flush=True)
 
                     # Attempt opening minimal sorries on the unverified variant candidate context to see if it unblocks locally
                     full2, opened = _open_minimal_sorries(isa, session, patched, trace)
                     if opened:
                         full = full2
-                        # Escalate the stage tracker before continuing to avoid loop stall
-                        repair_progress[hole_key] = min(start_stage + 1, 2)
+                        # # Escalate the stage tracker before continuing to avoid loop stall
+                        # repair_progress[hole_key] = min(start_stage + 1, 2)
                         focused_hole_key = None
                         continue
 
                 # Default fallback step if sorries couldn't open or if patched was identical to full
                 if trace:
-                    print("[repair] No structural progress possible or sorries failed to open; escalating stage...")
-                if start_stage < 2:
-                    repair_progress[hole_key] = min(start_stage + 1, 2)
-                    focused_hole_key = hole_key
-                else:
-                    repair_progress[hole_key] = 2
-                    focused_hole_key = hole_key
+                    print(f"[repair] No structural progress possible at Stage {start_stage}; adjusting engine constraints...", flush=True)
+                repair_progress[hole_key] = start_stage
+                focused_hole_key = hole_key
                 continue
 
         # Final verification
