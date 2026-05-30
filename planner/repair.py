@@ -876,22 +876,14 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
             fails_txt = "(none)"        
         
         try:
-            # blk = _propose_block_repair(
-            #     goal=goal_text, errors=err_texts, ce_hints=ce, 
-            #     proof_context=proof_context, block_type=block_type,
-            #     block_text=block, model=model, timeout_s=timeout, why=why,
-            #     prior_failed_blocks=fails_txt
-            # )
-            # if trace:
-            #     print(f"blk:\n{blk}", flush=True)
-
-            # remove this
-            blk = """
-have "rev ((x # xs) @ ys) = rev (xs @ ys) @ [x]" 
-      by simp
-"""
-            blk = _sanitize_llm_block(blk)
-            print(f"blk:\n{blk}", flush=True)
+            blk = _propose_block_repair(
+                goal=goal_text, errors=err_texts, ce_hints=ce, 
+                proof_context=proof_context, block_type=block_type,
+                block_text=block, model=model, timeout_s=timeout, why=why,
+                prior_failed_blocks=fails_txt
+            )
+            if trace:
+                print(f"blk:\n{blk}", flush=True)
 
         except Exception as e:
             # #Fix: On any exception (including a 429 that slipped past raise_for_status,
