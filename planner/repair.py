@@ -876,32 +876,22 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
             fails_txt = "(none)"        
         
         try:
-            blk = _propose_block_repair(
-                goal=goal_text, errors=err_texts, ce_hints=ce, 
-                proof_context=proof_context, block_type=block_type,
-                block_text=block, model=model, timeout_s=timeout, why=why,
-                prior_failed_blocks=fails_txt
-            )
-            if trace:
-                print(f"blk:\n{blk}", flush=True)
+            # blk = _propose_block_repair(
+            #     goal=goal_text, errors=err_texts, ce_hints=ce, 
+            #     proof_context=proof_context, block_type=block_type,
+            #     block_text=block, model=model, timeout_s=timeout, why=why,
+            #     prior_failed_blocks=fails_txt
+            # )
+            # if trace:
+            #     print(f"blk:\n{blk}", flush=True)
 
             # remove this
-#             blk = """
-#     case (Cons x xs)
-#     have "rev ((Cons x xs) @ ys) = rev (x # (xs @ ys))"
-#       by simp
-#     also have "... = rev (xs @ ys) @ [x]"
-#       by simp
-#     also have "... = (rev ys @ rev xs) @ [x]"
-#       using Cons.IH by simp
-#     also have "... = rev ys @ (rev xs @ [x])"
-#       by simp
-#     also have "... = rev ys @ rev (x # xs)"
-#       by simp
-#     finally show ?case .
-# """
-#             blk = _sanitize_llm_block(blk)
-#             print(f"blk:\n{blk}", flush=True)
+            blk = """
+have "rev ((x # xs) @ ys) = rev (xs @ ys) @ [x]" 
+      by simp
+"""
+            blk = _sanitize_llm_block(blk)
+            print(f"blk:\n{blk}", flush=True)
 
         except Exception as e:
             # #Fix: On any exception (including a 429 that slipped past raise_for_status,
@@ -981,10 +971,6 @@ def _repair_block(current_text: str, lines: List[str], start: int, end: int, goa
             best_text_so_far = patched
 
             end = start + len(new_block_lines)
-
-            if trace:
-                print(f"patched:\n{patched}\n", flush=True)
-                print(f"patched_raw:\n{patched_raw}\n", flush=True)
 
             if _verify_full_proof(isabelle, session, patched_raw, timeout_s=10):
                 return patched, True
